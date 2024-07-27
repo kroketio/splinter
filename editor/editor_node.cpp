@@ -7484,6 +7484,10 @@ EditorNode::EditorNode() {
 	DEV_ASSERT(!singleton);
 	singleton = this;
 
+#ifdef TOOLS_ENABLED
+	// auto ipc = new UIIPC();
+#endif
+
 	// Detecting headless mode, that means the editor is running in command line.
 	if (!DisplayServer::get_singleton()->window_can_draw()) {
 		cmdline_mode = true;

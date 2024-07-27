@@ -1573,6 +1573,10 @@ ProjectSettings::ProjectSettings() {
 	GLOBAL_DEF("application/run/main_loop_type", "SceneTree");
 	GLOBAL_DEF("application/config/auto_accept_quit", true);
 	GLOBAL_DEF("application/config/quit_on_go_back", true);
+	// PROPERTY_HINT_PLACEHOLDER_TEXT
+	GLOBAL_DEF_BASIC(PropertyInfo(Variant::STRING, "application/config/http_asset_browser", PROPERTY_HINT_PLACEHOLDER_TEXT, "http://192.168.0.30:19200/"), "http://192.168.0.30:19200/");
+
+	GLOBAL_DEF_BASIC(PropertyInfo(Variant::STRING, "application/config/project_bootstrap_git_url", PROPERTY_HINT_PLACEHOLDER_TEXT, "gitea@git.kroket.io:splinter/bootstrap.git"), "gitea@git.kroket.io:splinter/bootstrap.git");
 
 	GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "accessibility/general/accessibility_support", PROPERTY_HINT_ENUM, "Auto (When Screen Reader is Running),Always Active,Disabled"), 0);
 	GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "accessibility/general/updates_per_second", PROPERTY_HINT_RANGE, "1,100,1"), 60);
@@ -1581,8 +1585,8 @@ ProjectSettings::ProjectSettings() {
 	// - Have a 16:9 aspect ratio,
 	// - Have both dimensions divisible by 8 to better play along with video recording,
 	// - Be displayable correctly in windowed mode on a 1366×768 display (tested on Windows 10 with default settings).
-	GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "display/window/size/viewport_width", PROPERTY_HINT_RANGE, "1,7680,1,or_greater"), 1152); // 8K resolution
-	GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "display/window/size/viewport_height", PROPERTY_HINT_RANGE, "1,4320,1,or_greater"), 648); // 8K resolution
+	GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "display/window/size/viewport_width", PROPERTY_HINT_RANGE, "1,7680,1,or_greater"), 1680); // 8K resolution
+	GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "display/window/size/viewport_height", PROPERTY_HINT_RANGE, "1,4320,1,or_greater"), 1050); // 8K resolution
 
 	GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "display/window/size/mode", PROPERTY_HINT_ENUM, "Windowed,Minimized,Maximized,Fullscreen,Exclusive Fullscreen"), 0);
 

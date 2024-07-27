@@ -110,6 +110,17 @@ protected:
 	HashMap<ObjectID, HashMap<ObjectID, GLTFSkinIndex>> skin_and_skeleton3d_to_gltf_skin;
 	Dictionary additional_data;
 
+	bool blender_multiscene = false;
+	Dictionary blender_scene_to_objs_keys_lookup;
+	Dictionary blender_obj_to_scene_keys_lookup;
+	Dictionary blender_scene_to_anim_keys_lookup;
+	Dictionary blender_scene_to_fps_lookup;
+	HashMap<String, Node*> blender_scene_to_scene_lookup;
+	HashMap<String, AnimationPlayer*> blender_scene_to_animplayer_lookup;
+	HashMap<String, Array> test2;
+	Dictionary blender_scene_to_markers;
+	Dictionary blender_scene_to_markers_end;
+
 protected:
 	static void _bind_methods();
 

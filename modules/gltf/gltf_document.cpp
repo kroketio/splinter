@@ -43,6 +43,12 @@
 #include "core/io/file_access_memory.h"
 #include "core/io/json.h"
 #include "core/io/stream_peer.h"
+
+#include <fstream>
+#include <filesystem>
+#include "core/io/http_downloader.h"
+#include "core/io/splinter_utils.h"
+
 #include "core/object/object_id.h"
 #include "core/version.h"
 #include "scene/2d/node_2d.h"
@@ -57,6 +63,11 @@
 #include "scene/resources/image_texture.h"
 #include "scene/resources/portable_compressed_texture.h"
 #include "scene/resources/surface_tool.h"
+
+#include "modules/gdscript/gdscript.h"
+
+#include "scene/resources/text_file.h"
+#include <filesystem>
 
 #ifdef TOOLS_ENABLED
 #include "editor/file_system/editor_file_system.h"
@@ -130,6 +141,7 @@ static Ref<ImporterMesh> _mesh_to_importer_mesh(Ref<Mesh> p_mesh) {
 			// Assign default material when no material is assigned.
 			mat.instantiate();
 		}
+
 		importer_mesh->add_surface(p_mesh->surface_get_primitive_type(surface_i),
 				array, p_mesh->surface_get_blend_shape_arrays(surface_i), p_mesh->surface_get_lods(surface_i), mat,
 				mat_name, p_mesh->surface_get_format(surface_i));
@@ -690,9 +702,7 @@ Error GLTFDocument::_parse_nodes(Ref<GLTFState> p_state) {
 }
 
 void GLTFDocument::_compute_node_heights(Ref<GLTFState> p_state) {
-	if (_naming_version < 2) {
-		p_state->root_nodes.clear();
-	}
+	p_state->root_nodes.clear();
 	for (GLTFNodeIndex node_i = 0; node_i < p_state->nodes.size(); ++node_i) {
 		Ref<GLTFNode> node = p_state->nodes[node_i];
 		node->height = 0;
@@ -706,11 +716,8 @@ void GLTFDocument::_compute_node_heights(Ref<GLTFState> p_state) {
 			current_i = parent_i;
 		}
 
-		if (_naming_version < 2) {
-			// This is incorrect, but required for compatibility with previous Godot versions.
-			if (node->height == 0) {
-				p_state->root_nodes.push_back(node_i);
-			}
+		if (node->height == 0) {
+			p_state->root_nodes.push_back(node_i);
 		}
 	}
 }
@@ -1485,8 +1492,8 @@ Error GLTFDocument::_decode_buffer_view(Ref<GLTFState> p_state, double *p_dst, c
 	const uint8_t *bufptr = buffer.ptr();
 
 	//use to debug
-	print_verbose("glTF: accessor type " + _get_accessor_type_name(p_accessor_type) + " component type: " + _get_component_type_name(p_component_type) + " stride: " + itos(stride) + " amount " + itos(p_count));
-	print_verbose("glTF: accessor offset " + itos(p_byte_offset) + " view offset: " + itos(bv->byte_offset) + " total buffer len: " + itos(buffer.size()) + " view len " + itos(bv->byte_length));
+	// print_verbose("glTF: accessor type " + _get_accessor_type_name(p_accessor_type) + " component type: " + _get_component_type_name(p_component_type) + " stride: " + itos(stride) + " amount " + itos(p_count));
+	// print_verbose("glTF: accessor offset " + itos(p_byte_offset) + " view offset: " + itos(bv->byte_offset) + " total buffer len: " + itos(buffer.size()) + " view len " + itos(bv->byte_length));
 
 	const int64_t buffer_end = (stride * (p_count - 1)) + p_element_size;
 	ERR_FAIL_COND_V(buffer_end > bv->byte_length, ERR_PARSE_ERROR);
@@ -3776,23 +3783,31 @@ Error GLTFDocument::_parse_meshes(Ref<GLTFState> p_state) {
 					ERR_FAIL_COND_V(mat3d.is_null(), ERR_FILE_CORRUPT);
 
 					Ref<BaseMaterial3D> base_material = mat3d;
+					base_material->set_cull_mode(BaseMaterial3D::CULL_BACK);
+					// backface culling for every mesh material
 					if (has_vertex_color && base_material.is_valid()) {
 						base_material->set_flag(BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
 					}
 					mat = mat3d;
 
 				} else {
+					// empty material, assign default
 					Ref<StandardMaterial3D> mat3d;
 					mat3d.instantiate();
 					if (has_vertex_color) {
 						mat3d->set_flag(StandardMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
 					}
+					// backface culling for every mesh material
+					mat3d->set_cull_mode(BaseMaterial3D::CULL_BACK);
 					mat = mat3d;
 				}
 				ERR_FAIL_COND_V(mat.is_null(), ERR_FILE_CORRUPT);
 				instance_materials.append(mat);
 				mat_name = mat->get_name();
+
 			}
+
+			// print_line(vformat("import mat_name: %s", mat_name));
 			import_mesh->add_surface(primitive, array, morphs,
 					Dictionary(), mat, mat_name, flags);
 		}
@@ -4759,12 +4774,125 @@ Error GLTFDocument::_parse_materials(Ref<GLTFState> p_state) {
 		return OK;
 	}
 
+	bool asset_server_enabled = false;
+	String http_path = GLOBAL_GET("application/config/http_asset_browser");
+	std::string ipv4;
+	int port;
+
+	if (!http_path.is_empty()) {
+		HttpDownloader::parse_url(std::string(http_path.utf8().get_data()), ipv4, port);
+		print_line(vformat("asset_server reachable? http://%s:%d/", String(ipv4.c_str()), port));
+		if (HttpDownloader::is_port_open(ipv4, port)) {
+			print_line("asset_server was reachable");
+			asset_server_enabled = true;
+		} else {
+			print_line("asset_server not reachable");
+		}
+	}
+
+	// ensure texture directory exists
+	String abs_path = ProjectSettings::get_singleton()->globalize_path("res://");
+	std::filesystem::path project_path;
+	std::filesystem::path path_textures;
+
+	if (!abs_path.is_empty()) {
+		project_path = std::string(abs_path.utf8().get_data());
+		path_textures = project_path / "textures";
+		splinter::ensureDirectoryExists(path_textures);
+		splinter::ensureDirectoryExists(project_path / "models");
+		splinter::ensureDirectoryExists(project_path / "scripts");
+		splinter::ensureDirectoryExists(project_path / "scenes");
+	} else {
+		print_error("asset_server: could not establish project path");
+		asset_server_enabled = false;
+	}
+
 	const Array &materials = p_state->json["materials"];
+
+	std::map<std::string, splinter::PBRMat> pbr_mats;
+
+	if (asset_server_enabled) {
+		for (GLTFMaterialIndex i = 0; i < materials.size(); i++) {
+			const Dictionary &material_dict = materials[i];
+			// print_line(material_dict);
+			if (material_dict.has("name") && !String(material_dict["name"]).is_empty()) {
+				String tex_name = material_dict["name"];
+				splinter::PBRMat pbr_mat = splinter::parseGLTFMaterialKey(tex_name);
+				if (!pbr_mat.name.empty()) {
+					pbr_mats[pbr_mat.asset_pack + "_" + pbr_mat.name] = pbr_mat;
+					pbr_mat.ensureBaseDirExists(project_path);
+				}
+			}
+		}
+	}
+
+	print_line(vformat("size pbr_mats: %d", pbr_mats.size()));
+
+	// fetch install them
+	if (asset_server_enabled) {
+		std::vector<std::map<std::string, std::string>> items_to_download = {};
+
+		for (const auto& pair : pbr_mats) {
+			std::string key = pair.first;
+			splinter::PBRMat mat = pair.second;
+
+			if (!mat.exists_on_disk(project_path)) {
+				std::map<std::string, std::string> dl;
+				dl["name"] = mat.name;
+				dl["asset_pack"] = mat.asset_pack;
+				dl["size"] = mat.size;
+				items_to_download.emplace_back(dl);
+			}
+		}
+
+		if (items_to_download.size() >= 1) {
+			auto urls = HttpDownloader::url_from_params_for_godot_pack("1k", items_to_download);
+			HttpDownloader downloader(ipv4, port, 5);
+			downloader.fetch_threaded(urls);
+
+			const auto& results = downloader.get_results();
+			for (const auto& [url, buffer] : results) {
+				std::string assetPack = url.substr(url.find("asset_pack=") + 11, url.find("&", url.find("asset_pack=")) - url.find("asset_pack=") - 11);
+				std::filesystem::path texPath = project_path / "textures" / assetPack;
+				splinter::unpackAssetPackBuffer(url, buffer, texPath);
+			}
+		}
+	}
+
 	for (GLTFMaterialIndex i = 0; i < materials.size(); i++) {
 		const Dictionary &material_dict = materials[i];
 
 		Ref<StandardMaterial3D> material;
-		material.instantiate();
+
+		bool found_pbr_mat = false;
+		if (asset_server_enabled && material_dict.has("name") && !String(material_dict["name"]).is_empty()) {
+			String mat_name = material_dict["name"];
+
+			splinter::PBRMat parsed_mat = splinter::parseGLTFMaterialKey(mat_name);
+			std::string pbr_mat_lookup_key = parsed_mat.asset_pack + "_" + parsed_mat.name;
+			if (pbr_mats.find(pbr_mat_lookup_key) != pbr_mats.end()) {
+				splinter::PBRMat pbr_mat = pbr_mats[pbr_mat_lookup_key];
+
+				if(pbr_mat.exists_on_disk(project_path)) {
+					auto mat_abs_path = pbr_mat.path_tres(project_path);
+					print_line(vformat("asset_server: load mat: %s", mat_abs_path.c_str()));
+
+					Error err = OK;
+					material = ResourceLoader::load(String(mat_abs_path.c_str()), "", ResourceFormatLoader::CACHE_MODE_IGNORE, &err);
+					if(err != OK) {
+						print_error(vformat("asset_server: Could not load .tres '%s'", mat_abs_path.c_str()));
+					} else {
+						found_pbr_mat = true;
+					}
+				} else {
+					print_error(vformat("asset_server: .tres !exists_on_disk '%s'", mat_name));
+				}
+			}
+		}
+
+		if (!found_pbr_mat)
+			material.instantiate();
+
 		if (material_dict.has("name") && !String(material_dict["name"]).is_empty()) {
 			material->set_name(material_dict["name"]);
 		} else {
@@ -4779,14 +4907,14 @@ Error GLTFDocument::_parse_materials(Ref<GLTFState> p_state) {
 			material->set_shading_mode(BaseMaterial3D::SHADING_MODE_UNSHADED);
 		}
 
-		if (material_extensions.has("KHR_materials_emissive_strength")) {
+		if (!found_pbr_mat && material_extensions.has("KHR_materials_emissive_strength")) {
 			Dictionary emissive_strength = material_extensions["KHR_materials_emissive_strength"];
 			if (emissive_strength.has("emissiveStrength")) {
 				material->set_emission_energy_multiplier(emissive_strength["emissiveStrength"]);
 			}
 		}
 
-		if (material_extensions.has("KHR_materials_pbrSpecularGlossiness")) {
+		if (!found_pbr_mat && material_extensions.has("KHR_materials_pbrSpecularGlossiness")) {
 			WARN_PRINT("Material uses a specular and glossiness workflow. Textures will be converted to roughness and metallic workflow, which may not be 100% accurate.");
 			Dictionary sgm = material_extensions["KHR_materials_pbrSpecularGlossiness"];
 
@@ -4836,7 +4964,7 @@ Error GLTFDocument::_parse_materials(Ref<GLTFState> p_state) {
 			}
 			spec_gloss_to_rough_metal(spec_gloss, material);
 
-		} else if (material_dict.has("pbrMetallicRoughness")) {
+		} else if (!found_pbr_mat && material_dict.has("pbrMetallicRoughness")) {
 			const Dictionary &mr = material_dict["pbrMetallicRoughness"];
 			if (mr.has("baseColorFactor")) {
 				const Array &arr = mr["baseColorFactor"];
@@ -4889,7 +5017,7 @@ Error GLTFDocument::_parse_materials(Ref<GLTFState> p_state) {
 			}
 		}
 
-		if (material_dict.has("normalTexture")) {
+		if (!found_pbr_mat && material_dict.has("normalTexture")) {
 			const Dictionary &bct = material_dict["normalTexture"];
 			if (bct.has("index")) {
 				material->set_texture(BaseMaterial3D::TEXTURE_NORMAL, _get_texture(p_state, bct["index"], TEXTURE_TYPE_NORMAL));
@@ -4899,7 +5027,7 @@ Error GLTFDocument::_parse_materials(Ref<GLTFState> p_state) {
 				material->set_normal_scale(bct["scale"]);
 			}
 		}
-		if (material_dict.has("occlusionTexture")) {
+		if (!found_pbr_mat && material_dict.has("occlusionTexture")) {
 			const Dictionary &bct = material_dict["occlusionTexture"];
 			if (bct.has("index")) {
 				material->set_texture(BaseMaterial3D::TEXTURE_AMBIENT_OCCLUSION, _get_texture(p_state, bct["index"], TEXTURE_TYPE_GENERIC));
@@ -4908,7 +5036,7 @@ Error GLTFDocument::_parse_materials(Ref<GLTFState> p_state) {
 			}
 		}
 
-		if (material_dict.has("emissiveFactor")) {
+		if (!found_pbr_mat && material_dict.has("emissiveFactor")) {
 			const Array &arr = material_dict["emissiveFactor"];
 			ERR_FAIL_COND_V(arr.size() != 3, ERR_PARSE_ERROR);
 			const Color c = Color(arr[0], arr[1], arr[2]).linear_to_srgb();
@@ -4917,7 +5045,7 @@ Error GLTFDocument::_parse_materials(Ref<GLTFState> p_state) {
 			material->set_emission(c);
 		}
 
-		if (material_dict.has("emissiveTexture")) {
+		if (!found_pbr_mat && material_dict.has("emissiveTexture")) {
 			const Dictionary &bct = material_dict["emissiveTexture"];
 			if (bct.has("index")) {
 				material->set_texture(BaseMaterial3D::TEXTURE_EMISSION, _get_texture(p_state, bct["index"], TEXTURE_TYPE_GENERIC));
@@ -4926,13 +5054,13 @@ Error GLTFDocument::_parse_materials(Ref<GLTFState> p_state) {
 			}
 		}
 
-		if (material_dict.has("doubleSided")) {
+		if (!found_pbr_mat && material_dict.has("doubleSided")) {
 			const bool ds = material_dict["doubleSided"];
 			if (ds) {
 				material->set_cull_mode(BaseMaterial3D::CULL_DISABLED);
 			}
 		}
-		if (material_dict.has("alphaMode")) {
+		if (!found_pbr_mat && material_dict.has("alphaMode")) {
 			const String &am = material_dict["alphaMode"];
 			if (am == "BLEND") {
 				material->set_transparency(BaseMaterial3D::TRANSPARENCY_ALPHA_DEPTH_PRE_PASS);
@@ -4940,7 +5068,7 @@ Error GLTFDocument::_parse_materials(Ref<GLTFState> p_state) {
 				material->set_transparency(BaseMaterial3D::TRANSPARENCY_ALPHA_SCISSOR);
 			}
 		}
-		if (material_dict.has("alphaCutoff")) {
+		if (!found_pbr_mat && material_dict.has("alphaCutoff")) {
 			material->set_alpha_scissor_threshold(material_dict["alphaCutoff"]);
 		} else {
 			material->set_alpha_scissor_threshold(0.5f);
@@ -6329,7 +6457,7 @@ bool GLTFDocument::_does_skinned_mesh_require_placeholder_node(Ref<GLTFState> p_
 	return false;
 }
 
-void GLTFDocument::_generate_scene_node(Ref<GLTFState> p_state, const GLTFNodeIndex p_node_index, Node *p_scene_parent, Node *p_scene_root) {
+Node3D* GLTFDocument::_generate_scene_node(Ref<GLTFState> p_state, const GLTFNodeIndex p_node_index, Node *p_scene_parent, Node *p_scene_root) {
 	Ref<GLTFNode> gltf_node = p_state->nodes[p_node_index];
 	Node3D *current_node = nullptr;
 	// Check if any GLTFDocumentExtension classes want to generate a node for us.
@@ -6382,14 +6510,14 @@ void GLTFDocument::_generate_scene_node(Ref<GLTFState> p_state, const GLTFNodeIn
 		// Skeleton stuff: If this node is in a skeleton, we need to attach it to a bone attachment pointing to its bone.
 		if (gltf_node->skeleton >= 0) {
 			_generate_skeleton_bone_node(p_state, p_node_index, current_node, p_scene_parent, p_scene_root);
-			return;
+			return current_node;
 		}
 	}
 	// Skeleton stuff: If the parent node is in a skeleton, we need to attach this node to a bone attachment pointing to the parent's bone.
 	if (Object::cast_to<Skeleton3D>(p_scene_parent)) {
 		Skeleton3D *parent_skeleton = Object::cast_to<Skeleton3D>(p_scene_parent);
 		_attach_node_to_skeleton(p_state, p_node_index, current_node, parent_skeleton, p_scene_root);
-		return;
+		return current_node;
 	}
 	// Not a skeleton bone, so definitely some kind of node that goes in the Godot scene tree.
 	if (current_node == nullptr) {
@@ -6412,6 +6540,7 @@ void GLTFDocument::_generate_scene_node(Ref<GLTFState> p_state, const GLTFNodeIn
 	for (int i = 0; i < gltf_node->children.size(); ++i) {
 		_generate_scene_node(p_state, gltf_node->children[i], current_node, p_scene_root);
 	}
+	return current_node;
 }
 
 void GLTFDocument::_generate_skeleton_bone_node(Ref<GLTFState> p_state, const GLTFNodeIndex p_node_index, Node3D *p_current_node, Node *p_scene_parent, Node *p_scene_root) {
@@ -6484,12 +6613,12 @@ void GLTFDocument::_attach_node_to_skeleton(Ref<GLTFState> p_state, const GLTFNo
 }
 
 // Deprecated code used when naming_version is 0 or 1 (Godot 4.0 to 4.4).
-void GLTFDocument::_generate_scene_node_compat_4pt4(Ref<GLTFState> p_state, const GLTFNodeIndex p_node_index, Node *p_scene_parent, Node *p_scene_root) {
+Node3D* GLTFDocument::_generate_scene_node_compat_4pt4(Ref<GLTFState> p_state, const GLTFNodeIndex p_node_index, Node *p_scene_parent, Node *p_scene_root) {
 	Ref<GLTFNode> gltf_node = p_state->nodes[p_node_index];
 
 	if (gltf_node->skeleton >= 0) {
 		_generate_skeleton_bone_node_compat_4pt4(p_state, p_node_index, p_scene_parent, p_scene_root);
-		return;
+		return nullptr;
 	}
 
 	Node3D *current_node = nullptr;
@@ -6581,6 +6710,8 @@ void GLTFDocument::_generate_scene_node_compat_4pt4(Ref<GLTFState> p_state, cons
 	for (int i = 0; i < gltf_node->children.size(); ++i) {
 		_generate_scene_node_compat_4pt4(p_state, gltf_node->children[i], current_node, p_scene_root);
 	}
+
+	return current_node;
 }
 
 // Deprecated code used when naming_version is 0 or 1 (Godot 4.0 to 4.4).
@@ -7244,8 +7375,15 @@ void GLTFDocument::_import_animation(Ref<GLTFState> p_state, AnimationPlayer *p_
 	}
 
 	Ref<Animation> animation;
-	animation.instantiate();
-	animation->set_name(anim_name);
+	auto z = p_animation_player->get_animation_library("");
+
+	if(z->has_animation("blender")) {
+		animation = z->get_animation("blender");
+	} else {
+		animation.instantiate();
+		animation->set_name(anim_name);
+	}
+
 	animation->set_step(1.0 / p_state->get_bake_fps());
 
 	if (anim->get_loop()) {
@@ -7557,7 +7695,13 @@ void GLTFDocument::_import_animation(Ref<GLTFState> p_state, AnimationPlayer *p_
 		}
 	}
 
-	animation->set_length(anim_end - anim_start);
+	double new_length = anim_end - anim_start;
+	double wtf = animation->get_length();
+	if(wtf >= new_length && wtf != 1.0) {
+		animation->set_length(wtf);
+	} else {
+		animation->set_length(new_length);
+	}
 
 	Ref<AnimationLibrary> library;
 	if (!p_animation_player->has_animation_library("")) {
@@ -7567,6 +7711,40 @@ void GLTFDocument::_import_animation(Ref<GLTFState> p_state, AnimationPlayer *p_
 		library = p_animation_player->get_animation_library("");
 	}
 	library->add_animation(anim_name, animation);
+}
+
+Dictionary GLTFDocument::_read_blender_description(String path) {
+	if(!std::filesystem::exists(path.ptr())) {
+		WARN_PRINT(vformat("gltfBlender: path does not exist: %s", path));
+		return {};
+	} else {
+		print_verbose(vformat("gltfBlender: reading %s", path));
+	}
+
+	// Parse generated JSON file
+	TextFile *text_file = memnew(TextFile);
+	Ref<TextFile> text_res(text_file);
+	Error err = text_file->load_text(path);
+	if (err != OK) {
+		ERR_PRINT(vformat("gltfBlender: failed reading file %s", path));
+		return {};
+	}
+
+	JSON json;
+	err = json.parse(text_file->get_text());
+	if (err != OK) {
+		ERR_PRINT(vformat("gltfBlender: failed parsing json file %s", path));
+		return {};
+	}
+
+	Dictionary data = json.get_data();
+	if(data.has("scenes")) {
+		print_verbose("gltfBlender: reading description json done");
+		return data["scenes"];
+	}
+
+	ERR_PRINT(vformat("gltfBlender: failed parsing json key 'scenes' for file %s", path));
+	return {};
 }
 
 void GLTFDocument::_convert_mesh_instances(Ref<GLTFState> p_state) {
@@ -8637,6 +8815,10 @@ Node *GLTFDocument::_generate_scene_node_tree(Ref<GLTFState> p_state) {
 		err = ext->import_pre_generate(p_state);
 		ERR_CONTINUE(err != OK);
 	}
+
+	String blender_multiscene_name;
+	String project_root = ProjectSettings::get_singleton()->globalize_path("res://");
+
 	// Generate the node tree.
 	Node *single_root;
 	if (p_state->extensions_used.has("GODOT_single_root")) {
@@ -8651,11 +8833,379 @@ Node *GLTFDocument::_generate_scene_node_tree(Ref<GLTFState> p_state) {
 		}
 	} else {
 		single_root = memnew(Node3D);
+		blender_multiscene_name = get_blender_multiscene_name(p_state->filename.get_basename());
+		single_root->set_name(blender_multiscene_name);
+
+		std::filesystem::create_directories(std::string(project_root.utf8().get_data()) + "/scripts/gen/");
+
+		// check for blender multiscene
+		String path_blender_description = vformat("%s/%s/%s.gltf.blend.json", ProjectSettings::get_singleton()->get_resource_path(), p_state->get_base_path(), p_state->filename);
+		path_blender_description = path_blender_description.replace("res://", "");
+
+		auto scenes = _read_blender_description(path_blender_description);
+		p_state->blender_multiscene = scenes.keys().size() > 1;
+
+		PackedStringArray skip_node_names;
+
+		// handle worldspawn - generate collision
 		for (int32_t root_i = 0; root_i < p_state->root_nodes.size(); root_i++) {
-			if (_naming_version < 2) {
-				_generate_scene_node_compat_4pt4(p_state, p_state->root_nodes[root_i], single_root, single_root);
+			Ref<GLTFNode> gltf_node = p_state->nodes[p_state->root_nodes[root_i]];
+			auto gltf_node_name = gltf_node->get_name();
+			if(gltf_node_name.begins_with("worldspawn")) {
+				skip_node_names.append(gltf_node_name);
+				Node3D* bla = _generate_scene_node(p_state, p_state->root_nodes[root_i], single_root, single_root);
+				if(!bla) continue;
+				ImporterMeshInstance3D *result = Object::cast_to<ImporterMeshInstance3D>(bla);
+				Vector<Face3> faces_world = result->get_mesh()->get_faces();
+
+				Vector<Vector3> face_points_world;
+				face_points_world.resize(faces_world.size() * 3);
+				for (int i = 0; i < face_points_world.size(); i += 3) {
+					Face3 f = faces_world.get(i / 3);
+					face_points_world.set(i, f.vertex[0]);
+					face_points_world.set(i + 1, f.vertex[1]);
+					face_points_world.set(i + 2, f.vertex[2]);
+				}
+
+				ConcavePolygonShape3D *worldspawn_shape = memnew(ConcavePolygonShape3D);
+				worldspawn_shape->set_faces(face_points_world);
+
+				StaticBody3D *worldspawn_static_body_node = memnew(StaticBody3D);
+				worldspawn_static_body_node->set_name("static_body");
+				result->add_child(worldspawn_static_body_node);
+				worldspawn_static_body_node->set_owner(single_root);
+
+				CollisionShape3D *worldspawn_col = memnew(CollisionShape3D);
+				worldspawn_col->set_name("col");
+				worldspawn_static_body_node->add_child(worldspawn_col);
+				worldspawn_col->set_owner(single_root);
+				worldspawn_col->set_shape(worldspawn_shape);
+			}
+		}
+
+		// handle elevators (func_elevator)
+		// - they are added to the root node
+		for (int32_t root_i = 0; root_i < p_state->root_nodes.size(); root_i++) {
+			Ref<GLTFNode> gltf_node = p_state->nodes[p_state->root_nodes[root_i]];
+			auto gltf_node_name = gltf_node->get_name();
+
+			if(gltf_node_name.begins_with("func_elevator")) {
+				skip_node_names.append(gltf_node_name);
+
+				// func_elevator1_74 -> func_elevator1
+				String elevator_name = gltf_node_name.uri_encode();
+
+				if(gltf_node_name.count("_") >= 2) {
+					auto spl = gltf_node_name.split("_");
+					elevator_name = spl[0] + "_" + spl[1];
+				}
+
+				// func_elevator1 -> func_elevator1_curves.tres
+				String filename_curves = elevator_name + "_curves.tres";
+				String filename_child_scene = elevator_name + "_child_scene.tscn";
+
+				// validate blender filename, cannot have any '-' in them
+				if(p_state->filename.count("-") > 1) {
+					ERR_PRINT(vformat("Blender filename contains more than '-', aborting elevator parsing: %s", p_state->filename));
+					continue;
+				} else if(p_state->filename.count("-") <= 0) {
+					ERR_PRINT(vformat("Blender filename was bad, no '-' found, aborting elevator parsing: %s", p_state->filename));
+					continue;
+				}
+
+				String blender_filename = p_state->filename.split("-")[0] + ".blend";
+				String blender_path_basename;
+				Vector<String> resources_scene_paths = DirAccess::get_all_resource_paths("res:///scenes/");
+				for (const String &file_path : resources_scene_paths) {
+					if(file_path.ends_with(blender_filename)) {
+						blender_path_basename = file_path.left(file_path.length() - blender_filename.length());
+					}
+				}
+
+				if(blender_path_basename.is_empty()) {
+					ERR_PRINT(vformat("Could not find Blender file in res:///scenes/ - looking for: %s", blender_filename));
+					continue;
+				}
+
+				String filepath_curves = blender_path_basename + "/" + filename_curves;
+				String filepath_child_scene = blender_path_basename + "/" + filename_child_scene;
+
+				Node3D *elevator_node = memnew(Node3D);
+				elevator_node->set_name(elevator_name);
+				single_root->add_child(elevator_node);
+				elevator_node->set_owner(single_root);
+
+				AnimatableBody3D *anim_node = memnew(AnimatableBody3D);
+				anim_node->set_name("animbody");
+				elevator_node->add_child(anim_node);
+				anim_node->set_owner(single_root);
+
+				Node3D* bla = _generate_scene_node(p_state, p_state->root_nodes[root_i], anim_node, single_root);
+				if(!bla) continue;
+				ImporterMeshInstance3D *result = Object::cast_to<ImporterMeshInstance3D>(bla);
+				Vector<Face3> faces = result->get_mesh()->get_faces();
+
+				Vector<Vector3> face_points;
+				face_points.resize(faces.size() * 3);
+				for (int i = 0; i < face_points.size(); i += 3) {
+					Face3 f = faces.get(i / 3);
+					face_points.set(i, f.vertex[0]);
+					face_points.set(i + 1, f.vertex[1]);
+					face_points.set(i + 2, f.vertex[2]);
+				}
+
+				// gen collision
+				ConcavePolygonShape3D *elevator_shape = memnew(ConcavePolygonShape3D);
+				elevator_shape->set_faces(face_points);
+
+				CollisionShape3D *col = memnew(CollisionShape3D);
+				col->set_shape(elevator_shape);
+				col->set_name("col");
+				col->set_position(result->get_position());
+				anim_node->add_child(col);
+				col->set_owner(single_root);
+
+				Path3D *path = memnew(Path3D);
+				path->set_name("path");
+				elevator_node->add_child(path);
+				path->set_owner(single_root);
+
+				// look for _curves.tres
+				// Vector<String> file_paths = DirAccess::get_all_resource_paths("res://");
+				// for (const String &file_path : file_paths) {
+				// 	if(!file_path.begins_with("res:///scenes/"))
+				// 		continue;
+				// 	if(file_path.ends_with(filename_curves))
+				// 		filepath_curves = file_path;
+				// }
+
+				if(!filepath_child_scene.is_empty() && FileAccess::exists(filepath_child_scene)) {
+					Error error;
+					Ref<PackedScene> child_scene = ResourceLoader::load(
+						filepath_child_scene,
+						"PackedScene",
+						ResourceFormatLoader::CACHE_MODE_IGNORE,
+						&error
+					);
+
+					if (error == OK) {
+						Node *child_scene_node = child_scene->instantiate();
+
+						child_scene_node->set_name("child_scene");
+						result->add_child(child_scene_node);
+						child_scene_node->set_owner(single_root);
+					} else {
+						WARN_PRINT(vformat("could not load elevator child_scene resource %s: %s", filepath_child_scene, error));
+					}
+				}
+
+				bool elevator_curve_set = false;
+				if(!filepath_curves.is_empty() && FileAccess::exists(filepath_curves)) {
+					Error error;
+					Ref<Resource> resource = ResourceLoader::load(
+						filepath_curves,
+						"Curve3D",
+						ResourceFormatLoader::CACHE_MODE_IGNORE,
+						&error
+					);
+
+					if (error != OK) {
+						WARN_PRINT(vformat("%s: could not load elevator curve resource %s: %s", elevator_name, filepath_curves, error));
+					} else {
+						Curve3D *curve = Object::cast_to<Curve3D>(resource.ptr());
+						path->set_curve(curve);
+						elevator_curve_set = true;
+					}
+				}
+
+				if(!elevator_curve_set) {
+					WARN_PRINT(vformat("%s: creating default Curve3D", elevator_name));
+					Curve3D *curve = memnew(Curve3D);
+					path->set_curve(curve);
+				}
+
+				PathFollow3D *path_follow = memnew(PathFollow3D);
+				path_follow->set_name("path_follow");
+				path->add_child(path_follow);
+				path_follow->set_owner(single_root);
+				path_follow->set_rotation_mode(PathFollow3D::ROTATION_NONE);
+				path_follow->set_loop(false);
+				path_follow->set_tilt_enabled(false);
+
+				RemoteTransform3D *remote_transform = memnew(RemoteTransform3D);
+				remote_transform->set_name("remote_transform");
+				path_follow->add_child(remote_transform);
+				remote_transform->set_owner(single_root);
+				remote_transform->set_remote_node(NodePath("../../../animbody"));
+			}
+		}
+
+		if(!p_state->blender_multiscene) {
+			for (int32_t root_i = 0; root_i < p_state->root_nodes.size(); root_i++) {
+				// skip certain nodes
+				Ref<GLTFNode> gltf_node = p_state->nodes[p_state->root_nodes[root_i]];
+				auto gltf_node_name = gltf_node->get_name();
+				if(!skip_node_names.has(gltf_node_name)) {
+					_generate_scene_node(p_state, p_state->root_nodes[root_i], single_root, single_root);
+				}
+			}
+		} else {
+			// script templates
+			String tmpl_multiscene = "@icon(\"res://textures/icons/16x16/blender_multiscene.png\")\n";
+			tmpl_multiscene += "extends BlenderMultiScene\n\nfunc _ready():\n    super._ready()\n\nfunc _process(delta):\n    pass\n\n";
+			String tmpl_scene = "@icon(\"res://textures/icons/16x16/blender_scene.png\")\n";
+			tmpl_scene += "extends BlenderScene\n\nfunc _ready():\n    super._ready()\n\nfunc _process(delta):\n    pass\n\n";
+
+			String dir_multiscene_gen = project_root + "scripts/gen/";
+			String fp_multiscene_gen = dir_multiscene_gen + blender_multiscene_name + ".gd";
+
+			// write
+			if (!FileAccess::exists(fp_multiscene_gen)) {
+				Ref<FileAccess> file = FileAccess::open(fp_multiscene_gen, FileAccess::WRITE);
+				if (file.is_valid())
+					file->store_string(tmpl_multiscene);
+				file->close();
+			}
+
+			// load
+			Ref<Resource> res = ResourceLoader::load(fp_multiscene_gen, "", ResourceFormatLoader::CACHE_MODE_IGNORE);
+			GDScript* gdscript = Object::cast_to<GDScript>(*res);
+			if (gdscript) {
+				auto _script = Ref<GDScript>(gdscript);
+				single_root->set_script(_script);
 			} else {
-				_generate_scene_node(p_state, p_state->root_nodes[root_i], single_root, single_root);
+				WARN_PRINT(vformat("could not load %s", fp_multiscene_gen));
+			}
+
+			// loop scenes
+			Array scene_keys = scenes.keys();
+			for (int i = 0; i < scene_keys.size(); ++i) {
+				String encoded_scene_key = String(scene_keys[i]).uri_encode();
+				Dictionary dict_scene = scenes[scene_keys[i]];
+
+				// create new Node3D per scene
+				Node *scene = memnew(Node3D);
+				scene->set_name(encoded_scene_key);
+				single_root->add_child(scene);
+				scene->set_owner(single_root);
+
+				// add generated scene script
+				String fp_scene_gen = dir_multiscene_gen + blender_multiscene_name + "_scene_" + encoded_scene_key + ".gd";
+				if (!FileAccess::exists(fp_scene_gen)) {
+					Ref<FileAccess> file = FileAccess::open(fp_scene_gen, FileAccess::WRITE);
+					if (file.is_valid())
+						file->store_string(tmpl_scene);
+					file->close();
+				}
+
+				// load
+				Ref<Resource> res_scene = ResourceLoader::load(fp_scene_gen, "", ResourceFormatLoader::CACHE_MODE_IGNORE);
+				GDScript* gdscript_scene = Object::cast_to<GDScript>(*res_scene);
+				if (gdscript_scene) {
+					auto script_scene = Ref<GDScript>(gdscript_scene);
+					scene->set_script(script_scene);
+				} else {
+					WARN_PRINT(vformat("could not load %s", fp_scene_gen));
+				}
+
+				p_state->blender_scene_to_objs_keys_lookup[encoded_scene_key] = Array{};
+
+				// hide this node if it is not the first Blender scene
+				if(i > 0) {
+					Node3D *scene3d = cast_to<Node3D>(scene);
+					scene3d->set_visible(false);
+				}
+
+				// register objects to some temp. variable that we can reference later
+				if(dict_scene.has("objects")) {
+					auto scene_objects = Array(dict_scene["objects"]);
+					for(int u = 0; u != scene_objects.size(); u++) {
+						auto scene_object = Dictionary(scene_objects.get(u));
+						auto _name = String(scene_object["name"]);
+						//auto _type = String(scene_object["type"]);
+						Array(p_state->blender_scene_to_objs_keys_lookup[encoded_scene_key]).append(_name);
+						p_state->blender_obj_to_scene_keys_lookup[_name] = encoded_scene_key;
+					}
+				}
+
+				// register animations to some temp. variable that we can reference later
+				if(dict_scene.has("animations")) {
+					auto animations = Array(dict_scene["animations"]);
+					if(animations.size()) {
+						AnimationPlayer *player = memnew(AnimationPlayer);
+						player->set_name("animations");
+						scene->add_child(player, true);
+						player->set_owner(single_root);
+
+						Ref<Animation> animation;
+						animation.instantiate();
+						// animation->set_name("blender");
+
+						Ref<AnimationLibrary> library;
+						library.instantiate();
+						library->add_animation("blender", animation);
+						player->add_animation_library("", library);
+
+						p_state->blender_scene_to_anim_keys_lookup[encoded_scene_key] = animations;
+						p_state->blender_scene_to_animplayer_lookup[encoded_scene_key] = player;
+					}
+				}
+
+				// register timeline markers that we can reference later
+				if(dict_scene.has("markers") && dict_scene.has("marker_end_frame")) {
+					auto markers = Array(dict_scene["markers"]);
+					if(markers.size()) {
+						p_state->blender_scene_to_markers[encoded_scene_key] = markers;
+						p_state->blender_scene_to_markers_end[encoded_scene_key] = int(dict_scene["marker_end_frame"]);
+					}
+				}
+
+				// register fps
+				if(dict_scene.has("fps")) {
+					p_state->blender_scene_to_fps_lookup[encoded_scene_key] = int(dict_scene["fps"]);
+				} else {
+					p_state->blender_scene_to_fps_lookup[encoded_scene_key] = 30;
+				}
+
+				p_state->blender_scene_to_scene_lookup[encoded_scene_key] = scene;
+			}
+
+			// Add objects to specific scenes
+			for (int root_i = 0; root_i < p_state->root_nodes.size(); root_i++) {
+				Ref<GLTFNode> gltf_node = p_state->nodes[p_state->root_nodes[root_i]];
+				String gltf_node_name = gltf_node->get_name();
+
+				// skip certain nodes
+				if(skip_node_names.has(gltf_node_name)) {
+					continue;
+				}
+
+				if(!p_state->blender_obj_to_scene_keys_lookup.has(gltf_node_name)) {
+
+					// determine if we will be WARN_PRINT'ing
+					PackedStringArray forbidden_blender_object_names = {"constraint", "camerashakify", "connector_"};
+					bool warn_obj_not_found = true;
+					for(int i = 0; i != forbidden_blender_object_names.size(); i++) {
+						if(gltf_node_name.to_lower().contains(forbidden_blender_object_names[i])) {
+							warn_obj_not_found = false;
+							break;
+						}
+					}
+					if(warn_obj_not_found)
+						WARN_PRINT(vformat("obj %s not found", gltf_node_name));
+
+					continue;
+				}
+
+				String scene_id = p_state->blender_obj_to_scene_keys_lookup[gltf_node_name];
+				auto scene = p_state->blender_scene_to_scene_lookup[scene_id];
+
+
+				if (_naming_version < 2) {
+					_generate_scene_node_compat_4pt4(p_state, p_state->root_nodes[root_i], scene, single_root);
+				} else {
+					_generate_scene_node(p_state, p_state->root_nodes[root_i], scene, single_root);
+				}
 			}
 		}
 	}
@@ -8764,8 +9314,9 @@ Error GLTFDocument::_parse_gltf_state(Ref<GLTFState> p_state, const String &p_se
 	ERR_FAIL_COND_V(err != OK, ERR_PARSE_ERROR);
 
 	/* PARSE LIGHTS */
-	err = _parse_lights(p_state);
-	ERR_FAIL_COND_V(err != OK, ERR_PARSE_ERROR);
+	// @TODO: lights
+	// err = _parse_lights(p_state);
+	// ERR_FAIL_COND_V(err != OK, ERR_PARSE_ERROR);
 
 	/* PARSE CAMERAS */
 	err = _parse_cameras(p_state);
@@ -8809,20 +9360,233 @@ Error GLTFDocument::write_to_filesystem(Ref<GLTFState> p_state, const String &p_
 Node *GLTFDocument::generate_scene(Ref<GLTFState> p_state, float p_bake_fps, bool p_trimming, bool p_remove_immutable_tracks) {
 	Ref<GLTFState> state = p_state;
 	ERR_FAIL_COND_V(state.is_null(), nullptr);
+
+	state->set_bake_fps(p_bake_fps);
+
 	ERR_FAIL_INDEX_V(0, state->root_nodes.size(), nullptr);
 	Error err = OK;
 	p_state->set_bake_fps(p_bake_fps);
 	Node *root = _generate_scene_node_tree(state);
 	ERR_FAIL_NULL_V(root, nullptr);
 	_process_mesh_instances(state, root);
+
 	if (state->get_create_animations() && state->animations.size()) {
-		AnimationPlayer *ap = memnew(AnimationPlayer);
-		root->add_child(ap, true);
-		ap->set_owner(root);
-		for (int i = 0; i < state->animations.size(); i++) {
-			_import_animation(state, ap, i, p_trimming, p_remove_immutable_tracks);
+	if(!p_state->blender_multiscene) {
+			AnimationPlayer *player = memnew(AnimationPlayer);
+			root->add_child(player, true);
+			player->set_owner(root);
+
+			Ref<AnimationLibrary> library;
+			library.instantiate();
+			player->add_animation_library("", library);
+
+			for (int i = 0; i < p_state->animations.size(); i++) {
+				_import_animation(p_state, player, i, p_trimming, p_remove_immutable_tracks);
+			}
+		} else {
+			for (int i = 0; i < p_state->animations.size(); i++) {
+				Ref<GLTFAnimation> anim = p_state->animations[i];
+
+				// animation target & name
+				String anim_action_target;
+				String anim_action_name = anim->get_name();
+
+				// find associated target, get the first track
+				auto tracks = anim->get_node_tracks();
+				for (const KeyValue<int, GLTFAnimation::NodeTrack> &track_i : tracks) {
+					const Ref<GLTFNode> gltf_node = p_state->nodes[track_i.key];
+					anim_action_target = gltf_node->get_name();
+					break;
+				}
+
+				// find associated scene and ultimately its animationplayer
+				bool _found = false;
+				if (!anim_action_target.is_empty()) {
+					Dictionary dict_anims = p_state->blender_scene_to_anim_keys_lookup;
+
+					for (int u = 0; u < dict_anims.size(); u++) {
+						auto scene_name = dict_anims.keys()[u];
+						auto val = Array(dict_anims[scene_name]);
+
+						if (!val.has(anim_action_target))
+							continue;
+
+						auto scene = root->find_child(String(scene_name));
+						if (scene == nullptr)
+							continue;
+
+						if (!p_state->blender_scene_to_animplayer_lookup.has(scene->get_name()))
+							continue;
+
+						auto player = p_state->blender_scene_to_animplayer_lookup[scene->get_name()];
+						auto _player = cast_to<AnimationPlayer>(player);
+
+						// import animations specific to this scene's animationplayer
+						_import_animation(p_state, _player, i, p_trimming, p_remove_immutable_tracks);
+
+						_found = true;
+					}
+
+					if (!_found) {
+						WARN_PRINT("animation " + anim_action_name + " targeting " + anim_action_target + " could not be found");
+					}
+				}
+			}
 		}
 	}
+
+	// add timeline markers from Blender to the various animation players
+	if(p_state->blender_multiscene) {
+		Dictionary dict_markers = p_state->blender_scene_to_markers;
+		auto players = p_state->blender_scene_to_animplayer_lookup;
+
+		// loop scenes
+		for (int u = 0; u < dict_markers.size(); u++) {
+			std::map<std::string, Ref<Animation>> signal_keys = {};
+			String scene_name = dict_markers.keys()[u];
+			// WARN_PRINT(vformat("scene_name: %s", scene_name));
+			auto _markers = Array(dict_markers[scene_name]);
+
+			if(!players.has(scene_name)) {
+				WARN_PRINT(vformat("gltfBlender: marker found for scene %s but no player found, skipping marker", scene_name));
+				continue;
+			}
+
+			// any markers at all?
+			if(!_markers.size()) {
+				continue;
+			}
+
+			// end frame marker?
+			if(!p_state->blender_scene_to_markers_end.has(scene_name)) {
+				WARN_PRINT(vformat("gltfBlender: missing end frame marker for scene %s", scene_name));
+				continue;
+			}
+
+			// get associated animationplayer
+			auto player = players.get(scene_name);
+			auto player_node = NodePath(player->get_name());
+			Ref<AnimationLibrary> library = player->get_animation_library("");
+			if(library == nullptr) {
+				WARN_PRINT("gltfBlender: could not get default animationplayer library for player named " + player->get_name());
+				continue;
+			}
+
+			// create marker animation track
+			Ref<Animation> animation = library->get_animation("blender");
+			if(animation == nullptr) {
+				animation.instantiate();
+			}
+
+			int track_idx = animation->get_track_count();
+
+			animation->add_track(Animation::TrackType::TYPE_METHOD);
+			animation->track_set_path(track_idx, player_node);
+			animation->track_set_imported(track_idx, true);
+
+			// track duration
+			double frame_end = (1.0 / double(p_state->blender_scene_to_fps_lookup[scene_name])) * double(p_state->blender_scene_to_markers_end[scene_name]);
+			frame_end = std::ceil(frame_end * 100.0) / 100.0;
+			if(frame_end > animation->get_length()) {
+				animation->set_length(frame_end);
+			}
+
+			// fill marker track
+			for(int i = 0; i != _markers.size(); i++) {  // loop
+				auto marker = Dictionary(_markers[i]);  // name, frame, camera
+				if(!marker.has("name") || !marker.has("frame")) {
+					WARN_PRINT("gltfBlender: invalid marker found for player named " + player->get_name());
+					continue;
+				}
+
+				auto name = String(marker["name"]);
+				name = name.replace(":", "_");
+				name = name.replace("/", "_");
+				name = name.replace(".", "_");
+
+				if(name.contains(".")) {
+					WARN_PRINT(vformat("gltfBlender: dot character in marker %s detected, skipping", name));
+					continue;
+				}
+
+				// per marker: `emit_signal(marker_name)`
+				Dictionary key;
+				Array args;
+				key["method"] = "emit_signal";
+
+				if(marker.has("camera")) {
+					args.append("change_camera");
+					args.append(marker["camera"]);
+				}
+				else {
+					signal_keys[std::string(name.utf8().get_data())] = animation;
+					args.append(marker["name"]);
+				}
+
+				key["args"] = args;
+				double frame = (1.0 / double(p_state->blender_scene_to_fps_lookup[scene_name])) * double(marker["frame"]);
+				frame = std::ceil(frame * 100.0) / 100.0;
+
+				animation->track_insert_key(track_idx, frame, key);
+			}
+
+			String project_root = ProjectSettings::get_singleton()->globalize_path("res://");
+
+			// script: blender anim
+			String tmpl_anim = "@icon(\"res://textures/icons/16x16/blender_anim.png\")\n";
+			tmpl_anim += "extends BlenderAnimation\n\nfunc _ready():\n    pass\n\nfunc _process(delta):\n    pass\n\n";
+
+			String blender_name = get_blender_multiscene_name(p_state->filename.get_basename());
+			String dir_scene_gen = project_root + "scripts/gen/";
+			String fp_anim_gen = dir_scene_gen + blender_name + "_anim_" + scene_name + ".gd";
+
+			for (const auto &pair : signal_keys) {
+				const std::string &key = pair.first;
+				Ref<Animation> _animation = pair.second;
+				tmpl_anim += "signal " + String(key.c_str()) + "\n";
+			}
+
+			// write: append
+			if (!FileAccess::exists(fp_anim_gen)) {
+				Ref<FileAccess> file = FileAccess::open(fp_anim_gen, FileAccess::WRITE);
+				if (file.is_valid())
+					file->store_string(tmpl_anim);
+				file->close();
+			} else {
+				Ref<FileAccess> file = FileAccess::open(fp_anim_gen, FileAccess::READ);
+				if (file.is_valid()) {
+					String contents;
+					contents = file->get_as_text();
+					file->close();
+
+					for (const auto &pair : signal_keys) {
+						const std::string &key = pair.first;
+						String needle = "signal " + String(key.c_str()) + "\n";
+						if (!contents.contains(String(key.c_str()))) {
+							contents += needle;
+						}
+					}
+
+					file = FileAccess::open(fp_anim_gen, FileAccess::WRITE);
+					if (file.is_valid()) {
+						file->store_string(contents);
+						file->close();
+					}
+				}
+			}
+
+			// load
+			Ref<Resource> res_anim = ResourceLoader::load(fp_anim_gen, "", ResourceFormatLoader::CACHE_MODE_IGNORE);
+			GDScript* gdscript_anim = Object::cast_to<GDScript>(*res_anim);
+			if (gdscript_anim) {
+				auto script_scene = Ref<GDScript>(gdscript_anim);
+				player->set_script(script_scene);
+			} else {
+				WARN_PRINT(vformat("could not load %s", fp_anim_gen));
+			}
+		}
+	}
+
 	for (KeyValue<GLTFNodeIndex, Node *> E : state->scene_nodes) {
 		ERR_CONTINUE(!E.value);
 		for (Ref<GLTFDocumentExtension> ext : document_extensions) {

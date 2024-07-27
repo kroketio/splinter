@@ -44,6 +44,13 @@ class ReparentDialog;
 class ShaderCreateDialog;
 class TextureRect;
 
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <random>
+#include <ctime>
+
 class SceneTreeDock : public VBoxContainer {
 	GDCLASS(SceneTreeDock, VBoxContainer);
 
@@ -87,6 +94,7 @@ class SceneTreeDock : public VBoxContainer {
 		TOOL_CREATE_USER_INTERFACE,
 		TOOL_CREATE_FAVORITE,
 		TOOL_CENTER_PARENT,
+		TOOL_ADD_CAMERA_BOOKMARK,
 		TOOL_HIDE_FILTERED_OUT_PARENTS,
 		TOOL_ACCESSIBILITY_WARNINGS,
 	};
@@ -265,6 +273,9 @@ class SceneTreeDock : public VBoxContainer {
 
 	void _filter_changed(const String &p_filter);
 	void _filter_gui_input(const Ref<InputEvent> &p_event);
+	void _camera_option_selected(int p_option);
+	Vector3 get_viewport_camera_pos();
+	void set_viewport_camera_pos(Vector3 pos, std::string name = "");
 	void _filter_option_selected(int option);
 	void _append_filter_options_to(PopupMenu *p_menu, bool p_include_separator = true);
 
@@ -283,6 +294,7 @@ class SceneTreeDock : public VBoxContainer {
 	void _clear_clipboard();
 	void _create_remap_for_node(Node *p_node, HashMap<Ref<Resource>, Ref<Resource>> &r_remap);
 	void _create_remap_for_resource(Ref<Resource> p_resource, HashMap<Ref<Resource>, Ref<Resource>> &r_remap);
+	void _list_all_cameras(PopupMenu *p_menu);
 
 	void _list_all_subresources(PopupMenu *p_menu);
 	void _gather_resources(Node *p_node, List<Pair<Ref<Resource>, Node *>> &r_resources);
@@ -301,6 +313,7 @@ class SceneTreeDock : public VBoxContainer {
 	void _replace_node(Node *p_node, Node *p_by_node, bool p_keep_properties = true, bool p_remove_old = true);
 
 private:
+	int camera_bookmark_idx = 0;
 	static SceneTreeDock *singleton;
 
 public:

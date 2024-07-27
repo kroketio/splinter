@@ -491,6 +491,9 @@ void ProjectDialog::_nonempty_confirmation_ok_pressed() {
 	ok_pressed();
 }
 
+#include <filesystem>
+namespace fs = std::filesystem;
+
 void ProjectDialog::ok_pressed() {
 	// Before we create a project, check that the target folder is empty.
 	// If not, we need to ask the user if they're sure they want to do this.
@@ -528,6 +531,54 @@ void ProjectDialog::ok_pressed() {
 
 		EditorSettings::get_singleton()->set("project_manager/default_renderer", renderer_type);
 		EditorSettings::get_singleton()->save();
+
+		// bootstrap new project
+		std::string path_project_root = std::string(path.utf8().get_data());
+		String path_git = "/usr/bin/git";
+		std::string path_bootstrap_git_repo_tmp_str = "/tmp/splinter_bootstrap";
+		String path_bootstrap_git_repo_tmp = String(path_bootstrap_git_repo_tmp_str.c_str());
+		String bootstrap_git_repo = GLOBAL_GET("application/config/project_bootstrap_git_url");
+		bool bootstrap_git_repo_valid = false;
+
+		if (bootstrap_git_repo.begins_with("gitea@") ||
+			bootstrap_git_repo.begins_with("git@") ||
+			bootstrap_git_repo.begins_with("https://")) {
+			bootstrap_git_repo_valid = true;
+		} else {
+			print_error(vformat("git bootstrap failed: invalid repo: %s", bootstrap_git_repo));
+		}
+
+		if(bootstrap_git_repo_valid) {
+			if (fs::is_directory(path_bootstrap_git_repo_tmp_str))
+				fs::remove_all(path_bootstrap_git_repo_tmp_str);
+
+			List<String> args;
+			args.push_back("clone");
+			args.push_back(bootstrap_git_repo);
+			args.push_back(path_bootstrap_git_repo_tmp);
+
+			String str;
+			int exitcode = 0;
+			bool bootstrap_git_clone_success = false;
+			OS::get_singleton()->execute(path_git, args, &str, &exitcode, true);
+			if (exitcode != 0) {
+				print_error(vformat("git bootstrap failed: %s", str));
+			} else {
+				bootstrap_git_clone_success = true;
+			}
+
+			if(bootstrap_git_clone_success) {
+				fs::path path_source_dir = path_bootstrap_git_repo_tmp_str;
+				fs::path path_dest_dir = path_project_root;
+
+				for (const auto& entry : fs::directory_iterator(path_source_dir)) {
+					if (fs::is_directory(entry.path()) && entry.path().filename() != ".git") {
+						fs::path dest = path_dest_dir / entry.path().filename();
+						fs::rename(entry.path(), dest);
+					}
+				}
+			}
+		}
 
 		if (renderer_type == "forward_plus") {
 			project_features.push_back("Forward Plus");

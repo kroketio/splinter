@@ -384,6 +384,7 @@ void SceneTreeEditor::_update_node_subtree(Node *p_node, TreeItem *p_parent, boo
 	}
 }
 
+// hier worden nodes geadd @ tree
 void SceneTreeEditor::_update_node(Node *p_node, TreeItem *p_item, bool p_part_of_subscene) {
 	// Reset item properties that are not explicitly set in the default case.
 	p_item->clear_buttons();

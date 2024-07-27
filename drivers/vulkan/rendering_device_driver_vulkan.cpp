@@ -5901,6 +5901,8 @@ bool RenderingDeviceDriverVulkan::has_feature(Features p_feature) {
 #else
 			return true;
 #endif
+		case SUPPORTS_WIDE_LINES:
+			return physical_device_features.wideLines;
 		default:
 			return false;
 	}

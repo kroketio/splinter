@@ -3190,17 +3190,9 @@ void Node3DEditorViewport::_notification(int p_what) {
 			}
 
 			if (show_info) {
-				const String viewport_size = vformat(U"%d × %d", viewport->get_size().x, viewport->get_size().y);
+				const String viewport_size = vformat(U"%dx%d", viewport->get_size().x, viewport->get_size().y);
 				String text;
-				text += vformat(TTR("X: %s\n"), rtos(current_camera->get_position().x).pad_decimals(1));
-				text += vformat(TTR("Y: %s\n"), rtos(current_camera->get_position().y).pad_decimals(1));
-				text += vformat(TTR("Z: %s\n"), rtos(current_camera->get_position().z).pad_decimals(1));
-				text += "\n";
-				text += vformat(
-						TTR("Size: %s (%.1fMP)\n"),
-						viewport_size,
-						viewport->get_size().x * viewport->get_size().y * 0.000001);
-
+				text += vformat(TTR("%s, %s, %s (%s)\n"), rtos(current_camera->get_position().x).pad_decimals(1), rtos(current_camera->get_position().y).pad_decimals(1), rtos(current_camera->get_position().z).pad_decimals(1), viewport_size);
 				text += "\n";
 				text += vformat(TTR("Objects: %d\n"), viewport->get_render_info(Viewport::RENDER_INFO_TYPE_VISIBLE, Viewport::RENDER_INFO_OBJECTS_IN_FRAME));
 				text += vformat(TTR("Primitives: %d\n"), viewport->get_render_info(Viewport::RENDER_INFO_TYPE_VISIBLE, Viewport::RENDER_INFO_PRIMITIVES_IN_FRAME));

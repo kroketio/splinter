@@ -1515,9 +1515,10 @@ void GDScriptAnalyzer::resolve_class_body(GDScriptParser::ClassNode *p_class, co
 			}
 		} else if (member.type == GDScriptParser::ClassNode::Member::SIGNAL) {
 #ifdef DEBUG_ENABLED
-			if (member.signal->usages == 0) {
-				parser->push_warning(member.signal->identifier, GDScriptWarning::UNUSED_SIGNAL, member.signal->identifier->name);
-			}
+			// nobody cares
+			// if (member.signal->usages == 0) {
+			// 	parser->push_warning(member.signal->identifier, GDScriptWarning::UNUSED_SIGNAL, member.signal->identifier->name);
+			// }
 #endif // DEBUG_ENABLED
 		}
 	}
@@ -1779,9 +1780,10 @@ void GDScriptAnalyzer::resolve_function_signature(GDScriptParser::FunctionNode *
 		resolve_parameter(p_function->parameters[i]);
 		method_info.arguments.push_back(p_function->parameters[i]->get_datatype().to_property_info(p_function->parameters[i]->identifier->name));
 #ifdef DEBUG_ENABLED
-		if (p_function->parameters[i]->usages == 0 && !String(p_function->parameters[i]->identifier->name).begins_with("_") && !p_function->is_abstract) {
-			parser->push_warning(p_function->parameters[i]->identifier, GDScriptWarning::UNUSED_PARAMETER, function_visible_name, p_function->parameters[i]->identifier->name);
-		}
+		// nobody cares
+		// if (p_function->parameters[i]->usages == 0 && !String(p_function->parameters[i]->identifier->name).begins_with("_") && !p_function->is_abstract) {
+		// 	parser->push_warning(p_function->parameters[i]->identifier, GDScriptWarning::UNUSED_PARAMETER, function_visible_name, p_function->parameters[i]->identifier->name);
+		// }
 		is_shadowing(p_function->parameters[i]->identifier, "function parameter", true);
 #endif // DEBUG_ENABLED
 
@@ -1818,9 +1820,10 @@ void GDScriptAnalyzer::resolve_function_signature(GDScriptParser::FunctionNode *
 #endif
 		}
 #ifdef DEBUG_ENABLED
-		if (p_function->rest_parameter->usages == 0 && !String(p_function->rest_parameter->identifier->name).begins_with("_") && !p_function->is_abstract) {
-			parser->push_warning(p_function->rest_parameter->identifier, GDScriptWarning::UNUSED_PARAMETER, function_visible_name, p_function->rest_parameter->identifier->name);
-		}
+		// nobody cares
+		// if (p_function->rest_parameter->usages == 0 && !String(p_function->rest_parameter->identifier->name).begins_with("_") && !p_function->is_abstract) {
+		// 	parser->push_warning(p_function->rest_parameter->identifier, GDScriptWarning::UNUSED_PARAMETER, function_visible_name, p_function->rest_parameter->identifier->name);
+		// }
 		is_shadowing(p_function->rest_parameter->identifier, "function parameter", true);
 #endif // DEBUG_ENABLED
 	}
@@ -2210,9 +2213,10 @@ void GDScriptAnalyzer::resolve_variable(GDScriptParser::VariableNode *p_variable
 
 #ifdef DEBUG_ENABLED
 	if (p_is_local) {
-		if (p_variable->usages == 0 && !String(p_variable->identifier->name).begins_with("_")) {
-			parser->push_warning(p_variable, GDScriptWarning::UNUSED_VARIABLE, p_variable->identifier->name);
-		}
+		// nobody cares
+		// if (p_variable->usages == 0 && !String(p_variable->identifier->name).begins_with("_")) {
+		// 	parser->push_warning(p_variable, GDScriptWarning::UNUSED_VARIABLE, p_variable->identifier->name);
+		// }
 	}
 	is_shadowing(p_variable->identifier, kind, p_is_local);
 #endif // DEBUG_ENABLED
@@ -2472,9 +2476,10 @@ void GDScriptAnalyzer::resolve_match_pattern(GDScriptParser::PatternNode *p_matc
 			p_match_pattern->bind->set_datatype(result);
 #ifdef DEBUG_ENABLED
 			is_shadowing(p_match_pattern->bind, "pattern bind", true);
-			if (p_match_pattern->bind->usages == 0 && !String(p_match_pattern->bind->name).begins_with("_")) {
-				parser->push_warning(p_match_pattern->bind, GDScriptWarning::UNUSED_VARIABLE, p_match_pattern->bind->name);
-			}
+			// nobody cares
+			// if (p_match_pattern->bind->usages == 0 && !String(p_match_pattern->bind->name).begins_with("_")) {
+			// 	parser->push_warning(p_match_pattern->bind, GDScriptWarning::UNUSED_VARIABLE, p_match_pattern->bind->name);
+			// }
 #endif // DEBUG_ENABLED
 			break;
 		case GDScriptParser::PatternNode::PT_ARRAY:

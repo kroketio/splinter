@@ -353,7 +353,40 @@ void EditorExportPreset::set_include_filter(const String &p_include) {
 }
 
 String EditorExportPreset::get_include_filter() const {
-	return include_filter;
+	// add additional extensions to export include
+	Vector<String> filters = include_filter.split(",");
+
+	Vector<String> spl;
+	spl.push_back("*.json");
+	spl.push_back("*.html");
+	spl.push_back("*.htm");
+	spl.push_back("*.js");
+
+	for (int i = 0; i < spl.size(); ++i) {
+		bool exists = false;
+		for (int j = 0; j < filters.size(); ++j) {
+			if (filters[j] == spl[i]) {
+				exists = true;
+				break;
+			}
+		}
+		if (!exists && !spl[i].is_empty()) {
+			filters.push_back(spl[i]);
+		}
+	}
+
+	String final_filter;
+	for (int i = 0; i < filters.size(); ++i) {
+		if (i > 0) {
+			final_filter += ",";
+		}
+		final_filter += filters[i];
+	}
+
+	if (final_filter.begins_with(","))
+		final_filter = final_filter.substr(1, final_filter.length() - 1);
+
+	return final_filter;
 }
 
 void EditorExportPreset::set_export_path(const String &p_path) {

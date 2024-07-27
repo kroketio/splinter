@@ -507,6 +507,14 @@ public:
 		return data.tree;
 	}
 
+	_FORCE_INLINE_ Node* get_world() const {
+		return get_tree()->get_current_scene();
+	}
+
+	_FORCE_INLINE_ Ref<SceneTreeTimer> sleep(int time) const {
+		return get_tree()->create_timer(time);
+	}
+
 	_FORCE_INLINE_ bool is_inside_tree() const { return data.tree; }
 	bool is_internal() const { return data.internal_mode != INTERNAL_MODE_DISABLED; }
 

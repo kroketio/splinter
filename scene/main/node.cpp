@@ -1881,6 +1881,11 @@ Node *Node::get_node_or_null(const NodePath &p_path) const {
 			next = *unique;
 		} else {
 			next = nullptr;
+
+			// this is not needed, except that we do silly things during blender import, so it is needed
+			if(name.hash() == 0)
+				return nullptr;
+
 			const Node *const *node = current->data.children.getptr(name);
 			if (node) {
 				next = const_cast<Node *>(*node);
@@ -3798,6 +3803,8 @@ void Node::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_window"), &Node::get_window);
 	ClassDB::bind_method(D_METHOD("get_last_exclusive_window"), &Node::get_last_exclusive_window);
 	ClassDB::bind_method(D_METHOD("get_tree"), &Node::get_tree);
+	ClassDB::bind_method(D_METHOD("get_world"), &Node::get_world);
+	ClassDB::bind_method(D_METHOD("sleep", "time"), &Node::sleep);
 	ClassDB::bind_method(D_METHOD("create_tween"), &Node::create_tween);
 
 	ClassDB::bind_method(D_METHOD("duplicate", "flags"), &Node::duplicate, DEFVAL(DUPLICATE_USE_INSTANTIATION | DUPLICATE_SIGNALS | DUPLICATE_GROUPS | DUPLICATE_SCRIPTS));

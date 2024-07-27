@@ -304,6 +304,9 @@ class ArrayMesh : public Mesh {
 	void _set_surfaces(const Array &p_data);
 	Ref<ArrayMesh> shadow_mesh;
 
+	String _get_surfaces_str() const;
+	void _set_surfaces_str(String p_data) {};
+
 private:
 	struct Surface {
 		uint64_t format = 0;
@@ -316,6 +319,7 @@ private:
 		Ref<Material> material;
 		bool is_2d = false;
 	};
+	String surfaces_str;
 	Vector<Surface> surfaces;
 	mutable RID mesh;
 	AABB aabb;

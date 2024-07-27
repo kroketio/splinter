@@ -40,6 +40,9 @@
 #include "scene/gui/text_edit.h"
 #include "scene/main/timer.h"
 
+#include "core/io/file_access.h"
+#include "core/io/json.h"
+
 class FindBar : public HBoxContainer {
 	GDCLASS(FindBar, HBoxContainer);
 

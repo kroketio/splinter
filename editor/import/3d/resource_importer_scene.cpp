@@ -1165,6 +1165,7 @@ Node *ResourceImporterScene::_post_fix_animations(Node *p_node, Node *p_root, co
 							continue;
 					}
 					AnimationImportTracks track_mode = import_tracks_mode[track_channel_type];
+					// kut
 					NodePath path = anim->track_get_path(track_i);
 					Node *n = p_root->get_node(path);
 					Node3D *n3d = Object::cast_to<Node3D>(n);

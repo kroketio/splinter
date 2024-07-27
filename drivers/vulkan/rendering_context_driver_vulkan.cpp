@@ -627,6 +627,9 @@ VKAPI_ATTR VkBool32 VKAPI_CALL RenderingContextDriverVulkan::_debug_messenger_ca
 			"\n\t" + p_callback_data->pMessage +
 			objects_string + labels_string);
 
+	if (strstr(p_callback_data->pMessage, "Skipping ICD") != nullptr)
+		return VK_FALSE;
+
 	// Convert VK severity to our own log macros.
 	switch (p_message_severity) {
 		case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:

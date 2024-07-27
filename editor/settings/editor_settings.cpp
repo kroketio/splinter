@@ -328,7 +328,10 @@ void EditorSettings::_add_property_info_bind(const Dictionary &p_info) {
 	ERR_FAIL_COND_MSG(!p_info.has("type"), "Property info is missing \"type\" field.");
 
 	if (p_info.has("usage")) {
-		WARN_PRINT("\"usage\" is not supported in add_property_info().");
+		String name;
+		if (p_info.has("name"))
+			name = p_info["name"].operator String();
+		WARN_PRINT(vformat("\"usage\" is not supported in add_property_info(): %s", name));
 	}
 
 	PropertyInfo pinfo;
@@ -577,7 +580,7 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 
 	// Theme
 	EDITOR_SETTING_BASIC(Variant::BOOL, PROPERTY_HINT_ENUM, "interface/theme/follow_system_theme", false, "")
-	EDITOR_SETTING_BASIC(Variant::STRING, PROPERTY_HINT_ENUM, "interface/theme/preset", "Default", "Default,Breeze Dark,Godot 2,Gray,Light,Solarized (Dark),Solarized (Light),Black (OLED),Custom")
+	EDITOR_SETTING_BASIC(Variant::STRING, PROPERTY_HINT_ENUM, "interface/theme/preset", "Black (OLED)", "Default,Breeze Dark,Godot 2,Gray,Light,Solarized (Dark),Solarized (Light),Black (OLED),Custom")
 	EDITOR_SETTING_BASIC(Variant::STRING, PROPERTY_HINT_ENUM, "interface/theme/spacing_preset", "Default", "Compact,Default,Spacious,Custom")
 	EDITOR_SETTING(Variant::INT, PROPERTY_HINT_ENUM, "interface/theme/icon_and_font_color", 0, "Auto,Dark,Light")
 	EDITOR_SETTING_BASIC(Variant::COLOR, PROPERTY_HINT_NONE, "interface/theme/base_color", Color(0.2, 0.23, 0.31), "")

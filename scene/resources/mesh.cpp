@@ -1749,6 +1749,18 @@ void ArrayMesh::reset_state() {
 	custom_aabb = AABB();
 }
 
+// show applied mesh surfaces with their index *and* name, in the editor
+String ArrayMesh::_get_surfaces_str() const {
+	String data;
+	for (int i = 0; i < surfaces.size(); i++) {
+		String mat_name = surfaces[i].name;
+		if (mat_name.begins_with("materials/"))
+			mat_name = mat_name.substr(String("material/").length());
+		data += String::num(i, 0) + ": " + mat_name + "\n";
+	}
+	return data;
+}
+
 void ArrayMesh::_get_property_list(List<PropertyInfo> *p_list) const {
 	if (_is_generated()) {
 		return;
@@ -2340,6 +2352,9 @@ void ArrayMesh::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "blend_shape_mode", PROPERTY_HINT_ENUM, "Normalized,Relative"), "set_blend_shape_mode", "get_blend_shape_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::AABB, "custom_aabb", PROPERTY_HINT_NO_NODEPATH, "suffix:m"), "set_custom_aabb", "get_custom_aabb");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "shadow_mesh", PROPERTY_HINT_RESOURCE_TYPE, "ArrayMesh"), "set_shadow_mesh", "get_shadow_mesh");
+	ClassDB::bind_method(D_METHOD("_get_surfaces_str"), &ArrayMesh::_get_surfaces_str);
+	ClassDB::bind_method(D_METHOD("_set_surfaces_str", "_surfaces_str"), &ArrayMesh::_set_surfaces_str);
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "surfaces_str", PROPERTY_HINT_MULTILINE_TEXT), "_set_surfaces_str", "_get_surfaces_str");
 }
 
 void ArrayMesh::reload_from_file() {

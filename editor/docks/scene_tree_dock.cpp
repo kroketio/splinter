@@ -67,6 +67,8 @@
 #include "scene/resources/packed_scene.h"
 #include "servers/display_server.h"
 
+#include "core/io/splinter_utils.h"
+
 void SceneTreeDock::_nodes_drag_begin() {
 	pending_click_select = nullptr;
 }
@@ -192,6 +194,16 @@ void SceneTreeDock::shortcut_input(const Ref<InputEvent> &p_event) {
 		_tool_selected(TOOL_BATCH_RENAME);
 	} else if (ED_IS_SHORTCUT("scene_tree/add_child_node", p_event)) {
 		_tool_selected(TOOL_NEW);
+	} else if (ED_IS_SHORTCUT("scene_tree/cycle_camera", p_event)) {
+		const auto db = splinter::getCameraDB();
+		const auto cams_size = db.size();
+		if (!db.empty()) {
+			const auto cam = db[camera_bookmark_idx];
+			set_viewport_camera_pos(Vector3(cam.x, cam.y, cam.z), cam.name);
+			camera_bookmark_idx = (camera_bookmark_idx + 1) % cams_size;
+		} else {
+			WARN_PRINT_ED(vformat("no camera bookmark to cycle to"));
+		}
 	} else if (ED_IS_SHORTCUT("scene_tree/instantiate_scene", p_event)) {
 		_tool_selected(TOOL_INSTANTIATE);
 	} else if (ED_IS_SHORTCUT("scene_tree/expand_collapse_all", p_event)) {
@@ -1254,6 +1266,12 @@ void SceneTreeDock::_tool_selected(int p_tool, bool p_confirm_override) {
 		} break;
 		case TOOL_AUTO_EXPAND: {
 			scene_tree->set_auto_expand_selected(!EDITOR_GET("docks/scene_tree/auto_expand_to_selected"), true);
+		} break;
+		case TOOL_ADD_CAMERA_BOOKMARK: {
+			auto vec = get_viewport_camera_pos();
+			std::srand(std::time(0)); // Seed random number generator
+			std::string name = "camera_" + std::to_string(std::rand() % 1025);
+			splinter::add_camera_bookmark(name, vec);
 		} break;
 		case TOOL_CENTER_PARENT: {
 			EditorSettings::get_singleton()->set("docks/scene_tree/center_node_on_reparent", !EDITOR_GET("docks/scene_tree/center_node_on_reparent"));
@@ -3984,6 +4002,15 @@ void SceneTreeDock::_update_tree_menu() {
 	PopupMenu *tree_menu = button_tree_menu->get_popup();
 	tree_menu->clear();
 
+	tree_menu->add_item("New camera bookmark", TOOL_ADD_CAMERA_BOOKMARK);
+
+	PopupMenu *cam_menu_resources = memnew(PopupMenu);
+	cam_menu_resources->set_auto_translate_mode(AUTO_TRANSLATE_MODE_DISABLED);
+	cam_menu_resources->connect("about_to_popup", callable_mp(this, &SceneTreeDock::_list_all_cameras).bind(cam_menu_resources));
+	tree_menu->add_submenu_node_item(TTR("Cameras"), cam_menu_resources);
+
+	tree_menu->add_separator();
+
 	_append_filter_options_to(tree_menu);
 
 	tree_menu->add_separator();
@@ -4036,6 +4063,52 @@ void SceneTreeDock::_filter_gui_input(const Ref<InputEvent> &p_event) {
 		filter_quick_menu->popup();
 		filter_quick_menu->grab_focus();
 		accept_event();
+	}
+}
+
+void SceneTreeDock::_camera_option_selected(int p_option) {
+	auto db = splinter::getCameraDB();
+	auto pos = db[p_option];
+	auto vec = Vector3(pos.x, pos.y, pos.z);
+	set_viewport_camera_pos(vec, pos.name);
+}
+
+Vector3 SceneTreeDock::get_viewport_camera_pos() {
+	const auto rtn = Vector3(0,0,0);
+	if (Node3DEditor::get_singleton()->is_visible()) {
+		Node3DEditorViewport *vp = Node3DEditor::get_singleton()->get_editor_viewport(0);
+		if (vp->is_visible()) {
+			Camera3D *cam = vp->get_camera_3d();
+			return cam->get_position();
+		}
+	}
+	return rtn;
+}
+
+void SceneTreeDock::set_viewport_camera_pos(Vector3 pos, std::string name) {
+	if (Node3DEditor::get_singleton()->is_visible()) {
+		Node3DEditorViewport *vp = Node3DEditor::get_singleton()->get_editor_viewport(0);
+		if (vp->is_visible()) {
+			Camera3D *cam = vp->get_camera_3d();
+			cam->set_position(pos);
+			// if (name.empty()) {
+			// 	WARN_PRINT(vformat("viewport camera position \"%s\"", pos));
+			// } else {
+			// 	WARN_PRINT(vformat("viewport camera: \"%s\" position: \"%s\"", String(name.c_str()), pos));
+			// }
+		}
+	}
+}
+
+void SceneTreeDock::_list_all_cameras(PopupMenu *p_menu) {
+	p_menu->clear();
+	p_menu->connect(SceneStringName(id_pressed), callable_mp(this, &SceneTreeDock::_camera_option_selected));
+
+	const auto db = splinter::getCameraDB();
+	auto idx = 0;
+	for (const auto& cam: db) {
+		p_menu->add_item(String(cam.name.c_str()), idx);
+		idx += 1;
 	}
 }
 
@@ -4690,6 +4763,7 @@ SceneTreeDock::SceneTreeDock(Node *p_scene_root, EditorSelection *p_editor_selec
 	ED_SHORTCUT("scene_tree/toggle_editable_children", TTRC("Toggle Editable Children"));
 	ED_SHORTCUT("scene_tree/delete_no_confirm", TTRC("Delete (No Confirm)"), KeyModifierMask::SHIFT | Key::KEY_DELETE);
 	ED_SHORTCUT("scene_tree/delete", TTRC("Delete"), Key::KEY_DELETE);
+	ED_SHORTCUT("scene_tree/cycle_camera", TTRC("Cycle camera bookmark"), Key::P);
 
 	button_add = memnew(Button);
 	button_add->set_theme_type_variation("FlatMenuButton");
