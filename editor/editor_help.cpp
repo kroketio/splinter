@@ -944,6 +944,18 @@ void EditorHelp::_update_doc() {
 
 	DocData::ClassDoc cd = doc->class_list[edited_class]; // Make a copy, so we can sort without worrying.
 
+#ifdef __linux__
+	// dump to /tmp
+	String filepath_dump_class_doc_json = "/tmp/splinter_class_" + edited_class + ".json";
+	Dictionary blob = DocData::ClassDoc::to_dict(cd);
+	Ref<FileAccess> file = FileAccess::open(filepath_dump_class_doc_json, FileAccess::WRITE);
+	if (file.is_valid()) {
+		file->store_string(JSON::stringify(blob));
+		printf("written %s\n", filepath_dump_class_doc_json.utf8().get_data());
+		fflush(stdout);
+    }
+#endif
+
 #define HANDLE_DOC(m_string) ((cd.is_script_doc ? (m_string) : DTR(m_string)).strip_edges())
 
 	// Class name

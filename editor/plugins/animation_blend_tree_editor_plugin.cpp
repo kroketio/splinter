@@ -1025,6 +1025,11 @@ void AnimationNodeBlendTreeEditor::_scroll_changed(const Vector2 &p_scroll) {
 		return;
 	}
 	updating = true;
+	if(blend_tree.is_null()) {
+		WARN_PRINT("blend_tree.is_null()");
+		return;
+	}
+
 	blend_tree->set_graph_offset(p_scroll / EDSCALE);
 	updating = false;
 }

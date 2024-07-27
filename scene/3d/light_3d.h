@@ -75,10 +75,10 @@ private:
 	bool reverse_cull = false;
 	uint32_t cull_mask = 0;
 	uint32_t shadow_caster_mask = 0xFFFFFFFF;
-	bool distance_fade_enabled = false;
-	real_t distance_fade_begin = 40.0;
+	bool distance_fade_enabled = true;
+	real_t distance_fade_begin = 20.0;
 	real_t distance_fade_shadow = 50.0;
-	real_t distance_fade_length = 10.0;
+	real_t distance_fade_length = 4.0;
 	RS::LightType type = RenderingServer::LIGHT_DIRECTIONAL;
 	bool editor_only = false;
 	void _update_visibility();

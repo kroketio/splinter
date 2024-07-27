@@ -159,6 +159,7 @@ public:
 	static PackedStringArray get_files_at(const String &p_path);
 	PackedStringArray get_directories();
 	static PackedStringArray get_directories_at(const String &p_path);
+	static Vector<String> get_all_resource_paths(const String &path);
 	String _get_next();
 
 	void set_include_navigational(bool p_enable);

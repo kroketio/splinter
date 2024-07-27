@@ -1,78 +1,70 @@
-# Godot Engine
+# Splinter Engine
 
-<p align="center">
-  <a href="https://godotengine.org">
-    <img src="logo_outlined.svg" width="400" alt="Godot Engine logo">
-  </a>
-</p>
+![](splinter_logo_transparent_small.png)
 
-## 2D and 3D cross-platform game engine
+Fork of Godot:
 
-**[Godot Engine](https://godotengine.org) is a feature-packed, cross-platform
-game engine to create 2D and 3D games from a unified interface.** It provides a
-comprehensive set of [common tools](https://godotengine.org/features), so that
-users can focus on making games without having to reinvent the wheel. Games can
-be exported with one click to a number of platforms, including the major desktop
-platforms (Linux, macOS, Windows), mobile platforms (Android, iOS), as well as
-Web-based platforms and [consoles](https://docs.godotengine.org/en/latest/tutorials/platform/consoles.html).
+- Improved Blender<->Godot workflow
+  - particularly in the area of: cutscenes, animation baking, PBR materials, collisions
+- Integration with a custom asset server [[link]](https://github.com/kroketio/splinter_engine_asset_server)
+- Integration with a high-performance HTML renderer that we wrote [[link]](https://godotwebview.com)
+- Various small modifications to accelerate 3D development
 
-## Free, open source and community-driven
+For a full list, look at the commit(s) and/or code.
 
-Godot is completely free and open source under the very permissive [MIT license](https://godotengine.org/license).
-No strings attached, no royalties, nothing. The users' games are theirs, down
-to the last line of engine code. Godot's development is fully independent and
-community-driven, empowering users to help shape their engine to match their
-expectations. It is supported by the [Godot Foundation](https://godot.foundation/)
-not-for-profit.
+While open-source, we do not accept pull requests. This project solves our needs, 
+and is not meant for adoption by the public. We do not follow Godot coding 
+standards, and our modifications are quick & dirty, often directly hacked 
+into various parts, in questionable ways.
 
-Before being open sourced in [February 2014](https://github.com/godotengine/godot/commit/0b806ee0fc9097fa7bda7ac0109191c9c5e0a1ac),
-Godot had been developed by [Juan Linietsky](https://github.com/reduz) and
-[Ariel Manzur](https://github.com/punto-) (both still maintaining the project)
-for several years as an in-house engine, used to publish several work-for-hire
-titles.
+We follow Godot upstream, the master branch is rebased from time to 
+time, currently we are somewhere between Godot 4.4 and 4.5.
 
-![Screenshot of a 3D scene in the Godot Engine editor](https://raw.githubusercontent.com/godotengine/godot-design/master/screenshots/editor_tps_demo_1920x1080.jpg)
+![](screenshot.png)
 
-## Getting the engine
+# Notes
 
-### Binary downloads
+- Blender: multiscene import
+- Blender: func_elevator
+- Blender: -dobake and -dobake-x-x
+- Blender: auto-gen collisions for worldspawn
+- Blender: ignore lights
+- Blender: always backface cull for mesh materials
+- Blender: remove worldspawn mesh faces that are 'nodraw'
+- io/image: player detection (terrible)
+- Interop with external texture manager for PBR materials
+- Cull lights by default (distance fade)
+- dump class docs to /tmp/ when opened (linux only)
+- enforce Blender 4.2.0
 
-Official binaries for the Godot editor and the export templates can be found
-[on the Godot website](https://godotengine.org/download).
+## Blender import
 
-### Compiling from source
+Blender >= 4.2.0
 
-[See the official docs](https://docs.godotengine.org/en/latest/contributing/development/compiling)
-for compilation instructions for every supported platform.
+### Materials
 
-## Community and contributing
+Checks asset server for their PBR version, and installs/configures them.
 
-Godot is not only an engine but an ever-growing community of users and engine
-developers. The main community channels are listed [on the homepage](https://godotengine.org/community).
+### Auto collisions
 
-The best way to get in touch with the core engine developers is to join the
-[Godot Contributors Chat](https://chat.godotengine.org).
+Any Blender mesh which name starts with `worldspawn` automatically gets a `StaticBody3D` + concave collisions (trimex).
 
-To get started contributing to the project, see the [contributing guide](CONTRIBUTING.md).
-This document also includes guidelines for reporting bugs.
+### Elevators
 
-## Documentation and demos
+Any Blender mesh which name starts with `func_elevator` gets converted to an elevator, which in Godot produces: animatblebody, path3d, path3dfollow, etc.
 
-The official documentation is hosted on [Read the Docs](https://docs.godotengine.org).
-It is maintained by the Godot community in its own [GitHub repository](https://github.com/godotengine/godot-docs).
+For the points (elevator floors), create a `func_elevator1_curves.tres` (where `func_elevator1` is the Blender mesh object name in this example) file in the same directory. It will be automatically loaded. This is a Curves3D resource.
 
-The [class reference](https://docs.godotengine.org/en/latest/classes/)
-is also accessible from the Godot editor.
+To attach more objects to the elevator, create `func_elevator1_child_scene.tscn` in the same directory. It will automatically be attached.
 
-We also maintain official demos in their own [GitHub repository](https://github.com/godotengine/godot-demo-projects)
-as well as a list of [awesome Godot community resources](https://github.com/godotengine/awesome-godot).
+Note: this only works when the `.blend` file is somewhere in `res:///scenes/`
 
-There are also a number of other
-[learning resources](https://docs.godotengine.org/en/latest/community/tutorials.html)
-provided by the community, such as text and video tutorials, demos, etc.
-Consult the [community channels](https://godotengine.org/community)
-for more information.
+### multi-scene import
 
-[![Code Triagers Badge](https://www.codetriage.com/godotengine/godot/badges/users.svg)](https://www.codetriage.com/godotengine/godot)
-[![Translate on Weblate](https://hosted.weblate.org/widgets/godot-engine/-/godot/svg-badge.svg)](https://hosted.weblate.org/engage/godot-engine/?utm_source=widget)
-[![TODOs](https://badgen.net/https/api.tickgit.com/badgen/github.com/godotengine/godot)](https://www.tickgit.com/browse?repo=github.com/godotengine/godot)
+To activate multi-scene import, with all of its features, the `.blend` file should have at least 2 scenes, with specific naming:
+
+- `01-main`
+- `02-foo`
+- `03-bar`
+- etc.
+

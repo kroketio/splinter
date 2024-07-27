@@ -186,8 +186,10 @@ Node *EditorSceneFormatImporterBlend::import_scene(const String &p_path, uint32_
 	} else {
 		parameters_map["export_cameras"] = false;
 	}
+
+	// light: @TODO: https://github.com/godotengine/godot/issues/92168#issuecomment-2139752707
 	if (p_options.has(SNAME("blender/nodes/punctual_lights")) && p_options[SNAME("blender/nodes/punctual_lights")]) {
-		parameters_map["export_lights"] = true;
+		parameters_map["export_lights"] = false;
 	} else {
 		parameters_map["export_lights"] = false;
 	}
@@ -284,6 +286,7 @@ Node *EditorSceneFormatImporterBlend::import_scene(const String &p_path, uint32_
 	}
 
 	request_options["unpack_all"] = unpack_original_images;
+	request_options["export_bake_animation"] = true;
 	request_options["path"] = source_global;
 	request_options["gltf_options"] = parameters_map;
 
@@ -504,7 +507,7 @@ bool EditorFileSystemImportFormatSupportQueryBlend::query() {
 		configure_blender_dialog->set_flag(Window::FLAG_BORDERLESS, true); // Avoid closing accidentally.
 		configure_blender_dialog->set_close_on_escape(false);
 
-		String select_exec_label = TTR("Blender 3.0+ is required to import '.blend' files.\nPlease provide a valid path to a Blender executable.");
+		String select_exec_label = TTR("Blender 4.2+ is required to import '.blend' files.\nPlease provide a valid path to a Blender executable.");
 #ifdef MACOS_ENABLED
 		select_exec_label += "\n" + TTR("On macOS, this should be the `Contents/MacOS/blender` file within the Blender `.app` folder.");
 #endif

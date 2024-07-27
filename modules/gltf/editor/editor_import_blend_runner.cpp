@@ -31,9 +31,11 @@
 #include "editor_import_blend_runner.h"
 
 #include "core/io/http_client.h"
+#include "core/object/object.h"
 #include "editor/editor_file_system.h"
 #include "editor/editor_node.h"
 #include "editor/editor_settings.h"
+#include "scene/resources/text_file.h"
 
 static constexpr char PYTHON_SCRIPT_RPC[] = R"(
 import bpy, sys, threading
@@ -80,13 +82,204 @@ while True:
 )";
 
 static constexpr char PYTHON_SCRIPT_DIRECT[] = R"(
-import bpy, sys
+import bpy, bmesh, sys, os, json
+
 opts = %s
-if bpy.app.version < (3, 0, 0):
-  print('Blender 3.0 or higher is required.', file=sys.stderr)
+if bpy.app.version < (4, 2, 0):
+  raise Exception('Blender 4.2.0 or higher is required.')
 bpy.ops.wm.open_mainfile(filepath=opts['path'])
 if opts['unpack_all']:
   bpy.ops.file.unpack_all(method='USE_LOCAL')
+
+scenes = [s for s in bpy.data.scenes]
+multiscene = len(scenes) > 1
+json_path_out = opts['gltf_options']['filepath'] + '.blend.json'
+
+sanitize = lambda k: k.replace('.', '_')
+forbidden_objects = ['LIGHT']
+forbidden_names = ['CONSTRAINT', 'CAMERASHAKIFY', 'CONNECTOR_']
+
+def remove_nodraw_faces(obj):
+  print('handling', obj)
+  obj.select_set(True)
+
+  # Find the material index for the specified material.
+  target_material_index = -1
+  for index, mat in enumerate(obj.material_slots):
+    if mat.material and mat.material.name.endswith('nodraw'):
+      target_material_index = index
+      break
+
+  if target_material_index != -1:
+    bpy.ops.object.mode_set(mode='EDIT')
+
+    bm = bmesh.from_edit_mesh(obj.data)
+
+    bpy.ops.mesh.select_all(action='DESELECT')
+
+    # Loop through all faces and select
+    for face in bm.faces:
+      if face.material_index == target_material_index:
+        face.select = True
+
+    # Update the mesh to reflect the selection.
+    bmesh.update_edit_mesh(obj.data)
+
+    # delete faces
+    bpy.ops.mesh.delete(type='FACE')
+
+    # deselect all
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+def deselect():
+  for ob in bpy.context.selected_objects:
+    ob.select_set(False)
+
+def select_recursive(obj, bakeable=False):
+  for child in obj.children:
+    select_recursive(child)
+    if bakeable:
+      if child.animation_data or child.rigid_body:
+        child.select_set(True)
+
+# reset scale to 1.0, and set origin to center of mass (Volume)
+for obj in bpy.context.scene.objects:
+  # Ensure the object is not locked and is of a type that can have transformations applied (e.g., MESH, CURVE, etc.)
+  if obj.type in {'MESH', 'CURVE', 'SURFACE', 'META', 'FONT', 'ARMATURE'}:
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj  # Set the active object (needed for applying transformations)
+
+    # Apply rotation and scale transformations
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+    # center of mass (Volume)
+    if obj.type == 'MESH':
+      bpy.ops.object.origin_set(type='ORIGIN_CENTER_OF_VOLUME')
+
+    # Deselect the object
+    obj.select_set(False)
+
+deselect()
+
+# remove nodraw faces from worldspawn
+for o in bpy.context.scene.objects:
+  if o.name.startswith('worldspawn'):
+    remove_nodraw_faces(o)
+
+deselect()
+
+if multiscene:
+  mainscene = sanitize(scenes[0].name)
+  data = {'scenes': {}}
+
+  # keep track of added objects, as to not include soft-linked objects
+  objects = {mainscene: []}
+
+  for i, scene in enumerate(scenes):
+    deselect()
+    scene_name = sanitize(scene.name)
+    scene_fps = scene.render.fps
+
+    objs = []
+    for o in scene.objects:
+      obj_name = sanitize(o.name)
+      obj_name_upper = obj_name.upper()
+
+      # ====== IGNORE SOFT LINKED OBJECTS FROM MAINSCENE
+      if obj_name in objects[mainscene]:
+        continue
+      # ====== IGNORE FORBIDDEN OBJECT TYPES
+      if o.type in forbidden_objects:
+        continue
+      # ====== IGNORE FORBIDDEN OBJECT NAMES
+      c = False
+      for fname in forbidden_names:
+        if fname in obj_name_upper:
+          c = True
+          break
+      if c:
+        continue
+      objs.append(o)
+
+      # ====== BAKING
+      if obj_name.endswith('-dobake'):
+        if o.animation_data and o.animation_data.action:
+          frame_start, frame_end = o.animation_data.action.frame_range
+          o.select_set(True)
+          bpy.ops.nla.bake(
+		  	frame_start=int(frame_start), 
+			frame_end=int(frame_end), 
+			visual_keying=True, 
+			clear_constraints=True, 
+			clear_parents=True,
+			use_current_action=True, 
+			clean_curves=True, 
+			bake_types={'OBJECT'})
+
+      elif '-dobake_' in obj_name:  # support range
+        print('dobake encountered')
+        frames = obj_name.split('-dobake_', 1)[-1]
+        if '-' in frames:
+          frame_start = None
+          frame_end = None
+
+          try:
+            frame_start, frame_end = map(int, frames.split('-'))
+          except:
+            pass
+          print('from, to', frame_start, frame_end)
+          if frame_end and frame_end >= frame_start:
+            select_recursive(o, bakeable=True)
+            bpy.ops.nla.bake(
+				frame_start=int(frame_start), 
+				frame_end=int(frame_end), 
+				visual_keying=True, 
+				clear_constraints=True,
+				clear_parents=False,
+				use_current_action=True, 
+				clean_curves=True, 
+				bake_types={'OBJECT'})
+
+    objects.setdefault(scene_name, [])
+    objects[scene_name] += [sanitize(o.name) for o in objs]
+
+    animations = [sanitize(o.name) for o in objs if o.animation_data]
+
+    # markers
+    markers = []
+    marker_end_frame = 0
+    for m in scene.timeline_markers:
+      marker = {
+        'name': m.name,
+        'frame': m.frame
+      }
+      if m.camera:
+        marker['camera'] = m.camera.name.replace('.', '_')
+      markers.append(marker)
+    if markers:
+      marker_end_frame = max(m.frame for m in scene.timeline_markers)
+
+    data['scenes'][scene.name] = {
+      'animations': animations,
+      'markers': markers,
+      'marker_end_frame': marker_end_frame,
+      'fps': scene_fps,
+      'objects': [{
+        'name': sanitize(o.name),
+        'type': o.type,
+      } for o in objs]
+    }
+
+    f = open(json_path_out, 'w')
+    f.write(json.dumps(data, indent=True, sort_keys=True))
+    f.close()
+else:
+  print('gltfBlender: skipping multiscene for ' + json_path_out)
+  try:
+    os.remove(json_path_out)
+  except:
+    pass
+
 bpy.ops.export_scene.gltf(**opts['gltf_options'])
 )";
 
@@ -159,14 +352,19 @@ Error EditorImportBlendRunner::start_blender(const String &p_python_script, bool
 
 	List<String> args;
 	args.push_back("--background");
+	args.push_back("--python-exit-code");
+	args.push_back("1");
 	args.push_back("--python-expr");
 	args.push_back(p_python_script);
 
 	Error err;
+	String str;
 	if (p_blocking) {
 		int exitcode = 0;
-		err = OS::get_singleton()->execute(blender_path, args, nullptr, &exitcode);
+		err = OS::get_singleton()->execute(blender_path, args, &str, &exitcode, true);
+		printf("exit code: %d\n", exitcode);
 		if (exitcode != 0) {
+			print_error(vformat("Blender import failed: %s", str));
 			return FAILED;
 		}
 	} else {

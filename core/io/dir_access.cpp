@@ -576,6 +576,40 @@ PackedStringArray DirAccess::get_directories() {
 	return _get_contents(true);
 }
 
+Vector<String> DirAccess::get_all_resource_paths(const String &path) {
+    Vector<String> file_paths;
+    Ref<DirAccess> dir = DirAccess::open(path);
+
+    if (dir.is_null()) {
+        return file_paths;
+    }
+
+    dir->list_dir_begin();
+    String file_name = dir->get_next();
+
+    while (file_name != "") {
+        // skip "." and "..", and private folders
+        if (file_name.begins_with(".")) {
+            file_name = dir->get_next();
+            continue;
+        }
+
+        String file_path = path + "/" + file_name;
+
+        if (dir->current_is_dir()) {
+            Vector<String> subdirectory_files = DirAccess::get_all_resource_paths(file_path);
+            file_paths.append_array(subdirectory_files);
+        } else {
+            file_paths.push_back(file_path);
+        }
+
+        file_name = dir->get_next();
+    }
+
+    dir->list_dir_end();
+    return file_paths;
+}
+
 PackedStringArray DirAccess::get_directories_at(const String &p_path) {
 	Ref<DirAccess> da = DirAccess::open(p_path);
 	ERR_FAIL_COND_V_MSG(da.is_null(), PackedStringArray(), vformat("Couldn't open directory at path \"%s\".", p_path));

@@ -37,6 +37,14 @@
 
 #include "scene/3d/mesh_instance_3d.h"
 #include "scene/3d/multimesh_instance_3d.h"
+#include "scene/3d/path_3d.h"
+#include "scene/3d/physics/animatable_body_3d.h"
+#include "scene/3d/physics/collision_shape_3d.h"
+#include "scene/3d/remote_transform_3d.h"
+#include "scene/resources/packed_scene.h"
+#include "core/io/file_access.h"
+#include "core/io/dir_access.h"
+
 
 class CSGShape3D;
 class GridMap;
@@ -98,6 +106,7 @@ public:
 
 private:
 	void _build_parent_hierarchy(Ref<GLTFState> p_state);
+	Dictionary _read_blender_description(String path);
 	double _filter_number(double p_float);
 	void _round_min_max_components(Vector<double> &r_type_min, Vector<double> &r_type_max);
 	String _get_component_type_name(const GLTFAccessor::GLTFComponentType p_component_type);
@@ -321,7 +330,7 @@ public:
 	Error _parse_gltf_extensions(Ref<GLTFState> p_state);
 	void _process_mesh_instances(Ref<GLTFState> p_state, Node *p_scene_root);
 	Node *_generate_scene_node_tree(Ref<GLTFState> p_state);
-	void _generate_scene_node(Ref<GLTFState> p_state, const GLTFNodeIndex p_node_index, Node *p_scene_parent, Node *p_scene_root);
+	Node3D* _generate_scene_node(Ref<GLTFState> p_state, const GLTFNodeIndex p_node_index, Node *p_scene_parent, Node *p_scene_root);
 	void _generate_skeleton_bone_node(Ref<GLTFState> p_state, const GLTFNodeIndex p_node_index, Node *p_scene_parent, Node *p_scene_root);
 	void _import_animation(Ref<GLTFState> p_state, AnimationPlayer *p_animation_player,
 			const GLTFAnimationIndex p_index, const bool p_trimming, const bool p_remove_immutable_tracks);

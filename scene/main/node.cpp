@@ -2019,6 +2019,11 @@ Node *Node::get_node_or_null(const NodePath &p_path) const {
 			next = *unique;
 		} else {
 			next = nullptr;
+
+			// this is not needed, except that we do silly things during blender import, so it is needed
+			if(name.hash() == 0)
+				return nullptr;
+
 			const Node *const *node = current->data.children.getptr(name);
 			if (node) {
 				next = const_cast<Node *>(*node);

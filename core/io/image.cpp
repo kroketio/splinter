@@ -366,6 +366,133 @@ void Image::_get_mipmap_offset_and_size(int p_mipmap, int64_t &r_offset, int &r_
 	r_height = h;
 }
 
+// =================== CUSTOM STEALTH START
+
+// determine if a player is visible/seen.
+// returns dict with keys: reds, lums, timing.
+Dictionary Image::detect_player(const Ref<Image> &red, const Ref<Image> &green, const Ref<Image> &lighting) {
+	//	Ref<Image> red2 = Image::create_from_data(red->width, red->height, red->mipmaps, red->format, red->get_data());
+	//	Ref<Image> green2 = Image::create_from_data(green->width, green->height, green->mipmaps, green->format, green->get_data());
+	//	Ref<Image> lighting2 = Image::create_from_data(lighting->width, lighting->height, lighting->mipmaps, lighting->format, lighting->get_data());
+	//Image red2 = Image::create_from_data(width, height, mipmaps, format, red->get_data());
+
+	Dictionary info;
+	unsigned short reds = 0;
+	float lums = 0.0;
+
+	auto start = std::chrono::steady_clock::now();
+
+	auto *ptr_red = red->data.ptr();
+	auto *ptr_green = green->data.ptr();
+	auto *ptr_lighting = lighting->data.ptr();
+
+//	uint32_t max_ofs_red = red->width * red->height;
+//	uint32_t max_ofs_green = green->width * green->height;
+
+	for(uint32_t x = 0; x != red->width; x += 1) {
+		for(uint32_t y = 0; y != red->height; y += 1) {
+			uint32_t ofs = y * red->width + x;
+//			if(ofs > max_ofs_red)
+//				continue;
+
+			uint32_t ofs_r = ofs * 4 + 0;
+			uint32_t ofs_g = ofs * 4 + 1;
+			uint32_t ofs_b = ofs * 4 + 2;
+			uint32_t ofs_a = ofs * 4 + 3;
+
+//			print_line(
+//					"ofs: " +
+//					std::to_string(ofs) + std::endl +
+//					"ofs_r:" + std::to_string(ofs_r) + std::endl +
+//					"ofs_g:" + std::to_string(ofs_g) + std::endl +
+//					"ofs_b:" + std::to_string(ofs_b) + std::endl +
+//					"ofs_a:" + std::to_string(ofs_a) + std::endl);
+
+			unsigned char red_a = ptr_red[ofs_a];
+			if(red_a != 255) continue;
+
+			unsigned char red_r = ptr_red[ofs_r];
+			if(red_r != 255) continue;
+
+			unsigned char red_g = ptr_red[ofs_g];
+			if(red_g != 0) continue;
+
+			unsigned char red_b = ptr_red[ofs_b];
+			if(red_b != 0) continue;
+
+			// this is a red pixel, now check green
+			// if(ptr_green == nullptr) continue;
+
+			unsigned char green_g = ptr_green[ofs_g];
+			if(green_g != 255) continue;
+
+			reds += 1;
+
+//			auto _w = lighting->width;
+//			auto _h = lighting->height;
+//			auto _x = lighting->get_mipmap_count();
+//			auto _xx = red->get_mipmap_count();
+
+//			std::string lol = "ofs: " + std::to_string(ofs) + " " +
+//				"ofs_r:" + std::to_string(ofs_r) + " " +
+//				"ofs_g:" + std::to_string(ofs_g) + " " +
+//				"ofs_b:" + std::to_string(ofs_b) + " " +
+//				"ofs_a:" + std::to_string(ofs_a) + " " +
+//				"width: " + std::to_string(_w) + " " +
+//				"height: " + std::to_string(_h) + " " +
+//				"mipmap_count (lighting): " + std::to_string(_x) + " " +
+//				"mipmap_count (red): " + std::to_string(_xx) + " ";
+//
+//			if(lighting->is_empty()) {
+//				print_line("was empty!");
+//			}
+//			auto omg = String(lol.c_str());
+//			print_line(omg);
+
+			// seems ok, now test luminance
+			float lighting_r = ptr_lighting[ofs * 4 + 0] / 255.0;
+			float lighting_g = ptr_lighting[ofs * 4 + 1] / 255.0;
+			float lighting_b = ptr_lighting[ofs * 4 + 2] / 255.0;
+			lums += 0.2126f * lighting_r + 0.7152f * lighting_g + 0.0722f * lighting_b;
+		}
+	}
+
+	auto end = std::chrono::steady_clock::now();
+
+	info["reds"] = reds;
+	info["lums"] = lums;
+	info["timing"] = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+
+	return info;
+}
+
+// get pixel value at x 128 y 128
+Color Image::get_pixel_rgb8a_128(const Ref<Image> &img) const {
+	const int p_y = 128;
+	const int p_x = 128;
+
+	uint32_t ofs = p_y * width + p_x;
+	auto *ptr = img->data.ptr();
+
+	float r = ptr[ofs * 4 + 0] / 255.0;
+	float g = ptr[ofs * 4 + 1] / 255.0;
+	float b = ptr[ofs * 4 + 2] / 255.0;
+	float a = ptr[ofs * 4 + 3] / 255.0;
+	return Color(r, g, b, a);
+}
+
+Color Image::get_pixel_rgb8a(int p_x, int p_y) const {
+	uint32_t ofs = p_y * width + p_x;
+	auto *ptr = data.ptr();
+	float r = ptr[ofs * 4 + 0] / 255.0;
+	float g = ptr[ofs * 4 + 1] / 255.0;
+	float b = ptr[ofs * 4 + 2] / 255.0;
+	float a = ptr[ofs * 4 + 3] / 255.0;
+	return Color(r, g, b, a);
+}
+
+// =================== CUSTOM STEALTH END
+
 int64_t Image::get_mipmap_offset(int p_mipmap) const {
 	ERR_FAIL_INDEX_V(p_mipmap, get_mipmap_count() + 1, -1);
 
@@ -3619,6 +3746,10 @@ void Image::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("_set_data", "data"), &Image::_set_data);
 	ClassDB::bind_method(D_METHOD("_get_data"), &Image::_get_data);
+
+	ClassDB::bind_method(D_METHOD("get_pixel_rgb8a_128", "val"), &Image::get_pixel_rgb8a_128);
+	ClassDB::bind_static_method("Image", D_METHOD("detect_player", "red", "green", "lighting"), &Image::detect_player);
+//	ClassDB::bind_static_method("Image", D_METHOD("red_green", "lighting"), &Image::player_detect_lighting);
 
 	ClassDB::bind_method(D_METHOD("get_pixelv", "point"), &Image::get_pixelv);
 	ClassDB::bind_method(D_METHOD("get_pixel", "x", "y"), &Image::get_pixel);

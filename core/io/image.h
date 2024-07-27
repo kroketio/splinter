@@ -33,6 +33,11 @@
 #include "core/io/resource.h"
 #include "core/math/color.h"
 
+#include <map>
+#include <ostream>
+#include <string>
+#include <chrono>
+
 /**
  * Image storage class. This is used to store an image in user memory, as well as
  * providing some basic methods for image manipulation.
@@ -426,6 +431,9 @@ public:
 	void optimize_channels();
 
 	Color get_pixelv(const Point2i &p_point) const;
+	Color get_pixel_rgb8a_128(const Ref<Image> &img) const;
+	static Dictionary detect_player(const Ref<Image> &red, const Ref<Image> &green, const Ref<Image> &lighting);
+	Color get_pixel_rgb8a(int p_x, int p_y) const;
 	Color get_pixel(int p_x, int p_y) const;
 	void set_pixelv(const Point2i &p_point, const Color &p_color);
 	void set_pixel(int p_x, int p_y, const Color &p_color);
