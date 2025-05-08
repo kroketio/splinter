@@ -7420,9 +7420,12 @@ void GLTFDocument::_import_animation(Ref<GLTFState> p_state, AnimationPlayer *p_
 	}
 
 	double new_length = anim_end - anim_start;
-	if(new_length > animation->get_length()) {
+	double wtf = animation->get_length();
+	if(wtf >= new_length && wtf != 1.0) {
+		animation->set_length(wtf);
+	} else {
 		animation->set_length(new_length);
-  }
+	}
 
 	Ref<AnimationLibrary> library;
 	if (!p_animation_player->has_animation_library("")) {
